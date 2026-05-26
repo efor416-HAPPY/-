@@ -1229,6 +1229,8 @@ btnSendEmail.addEventListener('click', async () => {
         // Build template params matching standard and custom EmailJS variable layouts
         const templateParams = {
             to_email: email,
+            email: email,             // Standard EmailJS variable fallback
+            reply_to: email,          // Default reply-to header field variable
             to_name: email.split('@')[0],
             from_name: senderName,
             doc_title: state.currentDocName,
