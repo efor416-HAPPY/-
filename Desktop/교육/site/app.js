@@ -223,9 +223,8 @@ fileInput.addEventListener('change', (e) => {
     }
 });
 
-dropZone.addEventListener('click', () => {
-    fileInput.click();
-});
+// Click on dropZone naturally triggers the absolute positioned fileInput inside it.
+// No additional click listener on dropZone is needed to prevent recursive click bubbling.
 
 // Main importer Router
 async function handleFileImport(file) {
