@@ -22,6 +22,12 @@
     <!-- jsPDF: For client-side PDF generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
+    <!-- html2canvas: For rendering HTML container into canvas for CJK PDF support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- EmailJS SDK: For sending emails directly from the browser -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    
     <!-- Lucide Icons for clean UI icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -279,6 +285,58 @@
                             <i data-lucide="download-cloud"></i>
                             <span id="downloadBtnText">선택된 포맷으로 기기에 저장 (다운로드)</span>
                         </button>
+                    </div>
+                </div>
+
+                <!-- Email Send Panel -->
+                <div class="panel" style="margin-top: -0.5rem;">
+                    <div class="panel-title" style="border: none; padding-bottom: 0;">
+                        <i data-lucide="mail"></i>
+                        <span>이메일 수신 및 공유 (EmailJS)</span>
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: -0.5rem;">
+                        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                            작성한 문서 및 핵심 요약본 내용을 지정한 이메일로 안전하게 발송합니다.
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                <label for="emailRecipient" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">수신자 이메일 주소</label>
+                                <input type="email" id="emailRecipient" placeholder="example@email.com" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; color: var(--text-primary); outline: none; font-size: 0.9rem; transition: var(--transition);" required>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                <label for="emailSenderName" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">발신인 이름 (선택)</label>
+                                <input type="text" id="emailSenderName" placeholder="발송인 입력" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; color: var(--text-primary); outline: none; font-size: 0.9rem; transition: var(--transition);">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                            <label for="emailCustomMessage" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">추가 전달 메시지 (메모)</label>
+                            <textarea id="emailCustomMessage" placeholder="이메일 본문에 함께 작성할 인사말이나 전달 메시지를 입력하세요 (예: 문서를 검토해 주세요.)" style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; color: var(--text-primary); outline: none; font-size: 0.9rem; min-height: 80px; resize: vertical; font-family: var(--font-sans); transition: var(--transition);"></textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1.5rem; align-items: center; background: rgba(0, 0, 0, 0.1); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass);">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 500; cursor: pointer;">
+                                <input type="checkbox" id="emailIncludeDoc" checked style="width: 16px; height: 16px; accent-color: var(--accent-primary); cursor: pointer;">
+                                <span>본문 내용 포함</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 500; cursor: pointer;">
+                                <input type="checkbox" id="emailIncludeSummary" checked style="width: 16px; height: 16px; accent-color: var(--accent-primary); cursor: pointer;">
+                                <span>요약본 내용 포함</span>
+                            </label>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <button class="btn-primary" id="btnSendEmail" style="font-size: 1rem; padding: 1.1rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 18px rgba(16, 185, 129, 0.25);">
+                                <i data-lucide="send"></i>
+                                <span>이메일 전송</span>
+                            </button>
+                            <a class="btn-primary" id="btnSendSms" href="sms:" style="font-size: 1rem; padding: 1.1rem; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 18px rgba(245, 158, 11, 0.25); color: #ffffff; cursor: pointer;">
+                                <i data-lucide="message-square"></i>
+                                <span>모바일 문자 전송</span>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>

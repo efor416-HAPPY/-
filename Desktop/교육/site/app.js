@@ -6,9 +6,14 @@
 // Initialize Lucide Icons
 lucide.createIcons();
 
-// Setup PDF.js Worker
-const pdfjsLib = window['pdfjs-dist/build/pdf'];
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+// Setup PDF.js Worker safely to avoid startup crashes if library is blocked/delayed
+const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+if (pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+} else {
+    console.warn("PDF.js library could not be resolved from CDN globals.");
+}
+
 
 // Application State
 const state = {
@@ -310,13 +315,33 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Reader utilities
+// Reader utilities with auto-detection for UTF-8 vs EUC-KR (CP949) Korean encodings
 function readAsTextFile(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
+        reader.onload = (e) => {
+            const arrayBuffer = e.target.result;
+            try {
+                // Try decoding as strict UTF-8
+                const decoder = new TextDecoder('utf-8', { fatal: true });
+                const decodedText = decoder.decode(arrayBuffer);
+                resolve(decodedText);
+            } catch (utfErr) {
+                try {
+                    // Fallback to EUC-KR for Korean Windows text files
+                    const decoder = new TextDecoder('euc-kr');
+                    const decodedText = decoder.decode(arrayBuffer);
+                    resolve(decodedText);
+                } catch (eucErr) {
+                    // Final fallback to lenient UTF-8
+                    const decoder = new TextDecoder('utf-8');
+                    const decodedText = decoder.decode(arrayBuffer);
+                    resolve(decodedText);
+                }
+            }
+        };
         reader.onerror = (err) => reject(err);
-        reader.readAsText(file, "UTF-8");
+        reader.readAsArrayBuffer(file);
     });
 }
 
@@ -874,103 +899,95 @@ function buildHwpxBlob(text) {
     });
 }
 
-// PDF custom multi-page wrapped generator supporting Korean character encoding
+// PDF custom multi-page wrapped generator using canvas rendering for perfect CJK & native font support
 function buildPdfBlob(text, docTitle) {
     return new Promise(async (resolve, reject) => {
         try {
             const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
             
-            // Load NanumGothic-Regular.ttf if not loaded yet (for Korean characters)
-            if (!state.koreanFontData) {
-                setLoader(true, '한국어 서체 라이브러리(NanumGothic)를 불러오는 중...');
-                try {
-                    // Fetch light NanumGothic web ttf font
-                    const response = await fetch('https://cdn.jsdelivr.net/gh/naver/nanumfont@1.0/NanumGothic.ttf');
-                    if (!response.ok) throw new Error("Font fetch failed");
-                    const fontBlob = await response.blob();
-                    
-                    // Convert blob to base64 synchronously
-                    state.koreanFontData = await new Promise((res, rej) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => res(e.target.result.split(',')[1]);
-                        reader.onerror = (e) => rej(e);
-                        reader.readAsDataURL(fontBlob);
-                    });
-                } catch (fontErr) {
-                    console.warn("NanumGothic font fetch failed. Falling back to default font (Korean characters may not show).", fontErr);
+            // Create a temporary hidden container to render standard HTML content using browser's native font engine
+            const container = document.createElement('div');
+            container.style.position = 'absolute';
+            container.style.left = '-9999px';
+            container.style.top = '-9999px';
+            container.style.width = '750px';
+            container.style.padding = '45px';
+            container.style.background = '#ffffff';
+            container.style.color = '#000000';
+            container.style.fontFamily = "'Malgun Gothic', 'Nanum Gothic', sans-serif";
+            container.style.fontSize = '15px';
+            container.style.lineHeight = '1.7';
+            container.style.boxSizing = 'border-box';
+            
+            // Document Title Block
+            const titleEl = document.createElement('h1');
+            titleEl.style.fontSize = '24px';
+            titleEl.style.fontWeight = '700';
+            titleEl.style.margin = '0 0 10px 0';
+            titleEl.style.color = '#111827';
+            titleEl.style.borderBottom = '2px solid #e5e7eb';
+            titleEl.style.paddingBottom = '12px';
+            titleEl.innerText = docTitle.replace(/\.[^/.]+$/, "");
+            container.appendChild(titleEl);
+            
+            // Meta Info
+            const metaEl = document.createElement('p');
+            metaEl.style.fontSize = '11px';
+            metaEl.style.color = '#6b7280';
+            metaEl.style.margin = '-5px 0 25px 0';
+            metaEl.innerText = `Generated by OmniConvert at ${new Date().toLocaleString()} (100% Client-Side Secure Document Engine)`;
+            container.appendChild(metaEl);
+            
+            // Content Body Block
+            const bodyEl = document.createElement('div');
+            bodyEl.style.whiteSpace = 'pre-wrap';
+            bodyEl.style.wordBreak = 'break-all';
+            bodyEl.innerText = text;
+            container.appendChild(bodyEl);
+            
+            document.body.appendChild(container);
+            
+            // Render HTML to Canvas using html2canvas
+            html2canvas(container, {
+                scale: 2, // Double scaling for high-density crisp text
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            }).then(canvas => {
+                document.body.removeChild(container);
+                
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                
+                // standard A4 dimensions: 210mm x 297mm
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const imgWidth = 210; 
+                const pageHeight = 297;
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                let heightLeft = imgHeight;
+                let position = 0;
+                
+                // Add first page
+                pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+                heightLeft -= pageHeight;
+                
+                // Handle multi-page splits
+                while (heightLeft > 0) {
+                    position = heightLeft - imgHeight;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+                    heightLeft -= pageHeight;
                 }
-            }
-            
-            setLoader(true, 'PDF 문서를 인쇄하고 있습니다...');
-            
-            if (state.koreanFontData) {
-                // Register NanumGothic in jsPDF VFS
-                doc.addFileToVFS('NanumGothic.ttf', state.koreanFontData);
-                doc.addFont('NanumGothic.ttf', 'NanumGothic', 'normal');
-                doc.setFont('NanumGothic');
-            }
-            
-            // PDF formatting settings
-            const margin = 20;
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const contentWidth = pageWidth - (margin * 2);
-            
-            // Add Title block
-            doc.setFontSize(16);
-            doc.text(docTitle.replace(/\.[^/.]+$/, ""), margin, margin + 5);
-            doc.setFontSize(10);
-            doc.setTextColor(100, 100, 100);
-            doc.text(`Generated by OmniConvert at ${new Date().toLocaleString()}`, margin, margin + 12);
-            
-            // Horizontal line separator
-            doc.setDrawColor(200, 200, 200);
-            doc.line(margin, margin + 16, pageWidth - margin, margin + 16);
-            
-            // Add content text
-            doc.setFontSize(11);
-            doc.setTextColor(30, 30, 30);
-            
-            const startY = margin + 25;
-            let currentY = startY;
-            const lineHeight = 7;
-            
-            // Splitting paragraphs into wrapped lines
-            const paragraphs = text.split("\n");
-            
-            paragraphs.forEach(para => {
-                if (para.trim() === "") {
-                    currentY += lineHeight; // Empty line space
-                    return;
+                
+                const pdfBlob = pdf.output('blob');
+                resolve(pdfBlob);
+            }).catch(err => {
+                if (document.body.contains(container)) {
+                    document.body.removeChild(container);
                 }
-                
-                // Wrap text according to page dimensions
-                const wrappedLines = doc.splitTextToSize(para, contentWidth);
-                
-                wrappedLines.forEach(line => {
-                    // Check if line overflows current page heights
-                    if (currentY + lineHeight > pageHeight - margin) {
-                        doc.addPage();
-                        // Reset font configurations on new page
-                        if (state.koreanFontData) {
-                            doc.setFont('NanumGothic');
-                        }
-                        doc.setFontSize(11);
-                        doc.setTextColor(30, 30, 30);
-                        currentY = margin; // Reset to page top margin
-                    }
-                    
-                    doc.text(line, margin, currentY);
-                    currentY += lineHeight;
-                });
-                
-                currentY += 3; // Space between paragraphs
+                reject(err);
             });
             
-            // Generate PDF file as Blob
-            const pdfBlob = doc.output('blob');
-            resolve(pdfBlob);
         } catch (error) {
             reject(error);
         }
@@ -1144,4 +1161,152 @@ btnRunDiagnostics.addEventListener('click', async () => {
     
     btnRunDiagnostics.disabled = false;
     btnRunDiagnostics.style.opacity = '1';
+});
+
+/* ==========================================
+   9. EmailJS Integration (Sending via Email)
+   ========================================== */
+
+// Initialize EmailJS with Public Key
+if (typeof emailjs !== 'undefined') {
+    emailjs.init({
+        publicKey: "kE_3LCTY4meWYdgAL"
+    });
+} else {
+    console.warn("EmailJS library could not be resolved from CDN globals.");
+}
+
+const emailRecipient = document.getElementById('emailRecipient');
+const emailSenderName = document.getElementById('emailSenderName');
+const emailCustomMessage = document.getElementById('emailCustomMessage');
+const emailIncludeDoc = document.getElementById('emailIncludeDoc');
+const emailIncludeSummary = document.getElementById('emailIncludeSummary');
+const btnSendEmail = document.getElementById('btnSendEmail');
+const btnSendSms = document.getElementById('btnSendSms');
+
+// 1. EmailJS Send Handler
+btnSendEmail.addEventListener('click', async () => {
+    const email = emailRecipient.value.trim();
+    const senderName = emailSenderName.value.trim() || "OmniConvert";
+    const customMessageText = emailCustomMessage.value.trim();
+    const text = documentEditor.value.trim();
+    
+    // Validations
+    if (!email) {
+        showToast('수신자 이메일 주소를 입력해 주세요.', 'error');
+        emailRecipient.focus();
+        return;
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        showToast('유효한 이메일 형식(example@email.com)이 아닙니다.', 'error');
+        emailRecipient.focus();
+        return;
+    }
+    
+    if (!text) {
+        showToast('전송할 본문 내용이 없습니다. 에디터에 글을 작성해 주세요.', 'error');
+        return;
+    }
+    
+    const includeDoc = emailIncludeDoc.checked;
+    const includeSummary = emailIncludeSummary.checked;
+    
+    if (!includeDoc && !includeSummary) {
+        showToast('본문 혹은 요약본 중 최소 하나 이상 전송 설정해야 합니다.', 'error');
+        return;
+    }
+    
+    setLoader(true, '이메일을 작성하여 발송하고 있습니다...');
+    btnSendEmail.disabled = true;
+    btnSendEmail.style.opacity = '0.6';
+    
+    try {
+        // Calculate summary
+        const summaryResult = calculateTfidfSummarizer(text, state.summaryRatio);
+        
+        // Build template params matching standard and custom EmailJS variable layouts
+        const templateParams = {
+            to_email: email,
+            to_name: email.split('@')[0],
+            from_name: senderName,
+            doc_title: state.currentDocName,
+            
+            // Map custom memo/notes to standard keys so it maps to default {{message}} template variables
+            message: customMessageText || "(별도의 추가 메시지가 없습니다.)",
+            user_message: customMessageText,
+            notes: customMessageText,
+            
+            // Map raw document text to dedicated content keys
+            doc_content: includeDoc ? text : "(본문 전송 제외)",
+            document_content: includeDoc ? text : "(본문 전송 제외)",
+            content: includeDoc ? text : "(본문 전송 제외)",
+            
+            // Map summarizer outcomes
+            summary: includeSummary ? summaryResult.summaryText : "(요약문 전송 제외)",
+            doc_summary: includeSummary ? summaryResult.summaryText : "(요약문 전송 제외)",
+            
+            char_count: text.length,
+            word_count: text.split(/\s+/).length
+        };
+        
+        // Call EmailJS Send API
+        const response = await emailjs.send(
+            "service_gqbezre",
+            "template_vk4ngwg",
+            templateParams
+        );
+        
+        console.log('EmailJS Success Response:', response);
+        showToast('이메일 전송에 성공했습니다! (수신함을 확인해 보세요)', 'success');
+        
+    } catch (err) {
+        console.error('EmailJS Send Error:', err);
+        showToast(`이메일 전송 실패: ${err.text || err.message || JSON.stringify(err)}`, 'error');
+    } finally {
+        setLoader(false);
+        btnSendEmail.disabled = false;
+        btnSendEmail.style.opacity = '1';
+    }
+});
+
+// 2. Mobile SMS Send Handler
+btnSendSms.addEventListener('click', (e) => {
+    const text = documentEditor.value.trim();
+    if (!text) {
+        showToast('문자로 전송할 내용이 없습니다. 먼저 문서를 작성해 주세요.', 'error');
+        e.preventDefault();
+        return;
+    }
+    
+    const customMessageText = emailCustomMessage.value.trim();
+    const summaryResult = calculateTfidfSummarizer(text, state.summaryRatio);
+    
+    // Compile SMS message content
+    let smsBody = "";
+    if (customMessageText) {
+        smsBody += `[메모] ${customMessageText}\n\n`;
+    }
+    smsBody += `[문서] ${state.currentDocName}\n`;
+    
+    const includeDoc = emailIncludeDoc.checked;
+    const includeSummary = emailIncludeSummary.checked;
+    
+    if (includeSummary) {
+        smsBody += `[핵심요약]\n${summaryResult.summaryText}\n`;
+    }
+    if (includeDoc) {
+        // limit document text in SMS body to prevent overflow on mobile protocols (max ~800 chars)
+        const contentSnippet = text.length > 500 ? text.substring(0, 500) + "..." : text;
+        smsBody += `[본문내용]\n${contentSnippet}`;
+    }
+    
+    // Detect mobile OS for correct sms URI query separator
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const separator = isIOS ? '&' : '?';
+    
+    // Set dynamic href
+    btnSendSms.href = `sms:${separator}body=${encodeURIComponent(smsBody)}`;
+    showToast('모바일 메시지 전송 앱으로 연결합니다.', 'success');
 });
