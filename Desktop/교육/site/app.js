@@ -1151,6 +1151,26 @@ btnRunDiagnostics.addEventListener('click', async () => {
         if (!javaCode.includes("public class SampleText")) throw new Error("클래스명 자동 래핑 실패");
         if (!javaCode.includes("System.out.println(\"문서 데이터 내용\");")) throw new Error("텍스트 자동 래핑 실패");
     });
+
+    // Test Case 10: EmailJS Library Load Verification
+    await executeTest('EmailJS 메일 전송 모듈 로딩 검증', async () => {
+        if (typeof emailjs === 'undefined') throw new Error("EmailJS SDK 라이브러리가 헤드에 존재하지 않습니다.");
+    });
+
+    // Test Case 11: Mobile SMS Link Generator Verification
+    await executeTest('모바일 문자(SMS) 인코딩 스키마 검증', async () => {
+        const mockText = "문서 본문 내용";
+        const mockTitle = "검증문서.txt";
+        const customMessage = "메모 메시지";
+        
+        const smsBody = `[메모] ${customMessage}\n\n[문서] ${mockTitle}\n[본문내용]\n${mockText}`;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const separator = isIOS ? '&' : '?';
+        const url = `sms:${separator}body=${encodeURIComponent(smsBody)}`;
+        
+        if (!url.startsWith("sms:")) throw new Error("SMS 프로토콜 헤더 오류");
+        if (!url.includes(encodeURIComponent(customMessage))) throw new Error("메시지 인코딩 누락");
+    });
     
     // Display Toast based on results
     if (allPassed) {
