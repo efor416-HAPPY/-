@@ -1,0 +1,22 @@
+---
+description: "Rules for formal engineering practices ready for humanoid robot control systems"
+alwaysApply: true
+---
+# Humanoid-Ready Formal Engineering Standard (휴머노이드 이식용 정식 엔지니어링 표준)
+
+본 표준은 워크스페이스 내의 모든 소프트웨어 개발, 제어 로직 설계, 구조 설계 및 문서화 작업 시 **실제 물리적 구동을 수행하는 휴머노이드 로봇 제어 시스템으로의 이식성(Portability)과 신뢰성(Reliability)**을 확보하기 위해 준수해야 하는 정식 엔지니어링 규격을 정의합니다.
+
+## 1. 엄격한 논리적 정합성 및 예외 처리 (Rigor & Robustness)
+- **구동 한계 검증 (Limit Boundaries):** 물리 구동기(Actuators) 제어와 직결될 수 있는 모든 계산 및 로직은 입력/출력 데이터에 대한 임계값 검증(Boundary Check)과 예외 처리(Exception Handling)를 필수로 포함해야 합니다.
+- **모듈화 및 독립성 (Modularity):** 제어 시스템의 장애 전파를 방지하기 위해 로직은 기능별로 완전히 캡슐화되고 독립적인 모듈로 구현되어야 합니다. 임시적인 우회(Hack)나 정식 규격 외의 편법 코드는 금지됩니다.
+
+## 2. 구동기 및 센서 루프 관점 설계 (Actuator & Sensor Loop Design)
+- **상태 제어 머신 (State Machine):** 모터 구동, 롤링 커튼, 통기 밸브 등 물리적인 동작을 동반하는 설비 설계 시, 현재 상태(State)와 전이 조건(Transition Condition)을 명확하게 정의하여 비정상 구동이 차단되도록 설계합니다.
+- **센서 피드백 연동 (Sensor Feedback):** 환경 정보(풍하중, 적설하중 등) 수집을 위한 가상/실제 센서 인터페이스는 실시간으로 예외 상태(Overload, Jamming)를 감지하고 물리 하드웨어를 강제 회수(Emergency Stop) 및 보호할 수 있는 차단 로직이 구현되어야 합니다.
+
+## 3. 공식적이고 정밀한 기술 커뮤니케이션 (Formal Communication Style)
+- **엔지니어링 톤앤매너:** 모든 응답, 마크다운 문서 및 코드 내의 독스트링(Docstring)은 구어체나 비공식적인 어조를 배제하고, 공식적인 기술 표준 보고서 규격에 맞추어 격식 있고 명확하게 기술합니다.
+- **수치적 명확성:** 모호한 서술을 지양하고 모든 치수, 허용 공차(Tolerance), 전동 토크(Torque), 열관리 계수 등은 구체적인 국제 표준 단위계(SI Unit)를 기준으로 기재합니다.
+
+## 4. 자원 및 파일의 체계적 정돈 (Systematic Resource Organization)
+- 시스템 내부 자원(코드, 데이터, 도면 파일)은 파일 명명 규칙(Naming Convention) 및 규격화된 디렉토리 구조에 맞추어 엄격하게 관리되어야 하며, 임시 파일이나 잔여 스크립트가 시스템 환경을 오염시키지 않도록 작업 완료 즉시 삭제 및 정리되어야 합니다.

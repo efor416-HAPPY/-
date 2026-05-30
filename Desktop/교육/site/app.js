@@ -6,6 +6,289 @@
 // Initialize Lucide Icons
 lucide.createIcons();
 
+// BADA Ambient Sound Synthesizer (Web Audio API)
+const BadaAudioManager = {
+    audioCtx: null,
+    sources: {
+        birds: null,
+        waves: null,
+        spring: null,
+        rain: null
+    },
+    gains: {
+        birds: null,
+        waves: null,
+        spring: null,
+        rain: null
+    },
+    states: {
+        birds: false,
+        waves: false,
+        spring: false,
+        rain: false
+    },
+    volumes: {
+        birds: 0.5,
+        waves: 0.5,
+        spring: 0.5,
+        rain: 0.5
+    },
+
+    init() {
+        if (this.audioCtx) return;
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    },
+
+    toggleSound(type) {
+        this.init();
+        if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
+
+        if (this.states[type]) {
+            this.stopSound(type);
+        } else {
+            this.startSound(type);
+        }
+    },
+
+    setVolume(type, val) {
+        this.volumes[type] = parseFloat(val);
+        if (this.gains[type] && this.audioCtx) {
+            this.gains[type].gain.setValueAtTime(this.volumes[type], this.audioCtx.currentTime);
+        }
+    },
+
+    startSound(type) {
+        this.states[type] = true;
+        const btn = document.getElementById('soundBtn' + type.charAt(0).toUpperCase() + type.slice(1));
+        if (btn) btn.classList.add('active');
+
+        if (type === 'rain') this.playRain();
+        if (type === 'waves') this.playWaves();
+        if (type === 'spring') this.playSpring();
+        if (type === 'birds') this.playBirds();
+    },
+
+    stopSound(type) {
+        this.states[type] = false;
+        const btn = document.getElementById('soundBtn' + type.charAt(0).toUpperCase() + type.slice(1));
+        if (btn) btn.classList.remove('active');
+
+        if (this.sources[type]) {
+            try {
+                if (Array.isArray(this.sources[type])) {
+                    this.sources[type].forEach(s => s.stop());
+                } else {
+                    this.sources[type].stop();
+                }
+            } catch (e) {}
+            this.sources[type] = null;
+        }
+        this.gains[type] = null;
+    },
+
+    createNoiseBuffer(type = 'white') {
+        const bufferSize = 2 * this.audioCtx.sampleRate;
+        const noiseBuffer = this.audioCtx.createBuffer(1, bufferSize, this.audioCtx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            if (type === 'pink') {
+                output[i] = (lastOut + (0.02 * white)) / 1.02;
+                lastOut = output[i];
+                output[i] *= 3.5;
+            } else {
+                output[i] = white;
+            }
+        }
+        return noiseBuffer;
+    },
+
+    playRain() {
+        const noise = this.audioCtx.createBufferSource();
+        noise.buffer = this.createNoiseBuffer('white');
+        noise.loop = true;
+
+        const filter = this.audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1000;
+        filter.Q.value = 0.6;
+
+        const gain = this.audioCtx.createGain();
+        gain.gain.value = this.volumes.rain;
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.audioCtx.destination);
+
+        noise.start(0);
+        this.sources.rain = noise;
+        this.gains.rain = gain;
+    },
+
+    playWaves() {
+        const noise = this.audioCtx.createBufferSource();
+        noise.buffer = this.createNoiseBuffer('pink');
+        noise.loop = true;
+
+        const filter = this.audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 400;
+
+        const gain = this.audioCtx.createGain();
+        gain.gain.value = 0;
+
+        const osc = this.audioCtx.createOscillator();
+        osc.frequency.value = 0.12;
+        
+        const lfoGain = this.audioCtx.createGain();
+        lfoGain.gain.value = 0.25;
+
+        osc.connect(lfoGain);
+        lfoGain.connect(gain.gain);
+
+        const baseGain = this.audioCtx.createGain();
+        baseGain.gain.value = this.volumes.waves;
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(baseGain);
+        baseGain.connect(this.audioCtx.destination);
+
+        noise.start(0);
+        osc.start(0);
+
+        this.sources.waves = [noise, osc];
+        this.gains.waves = baseGain;
+    },
+
+    playSpring() {
+        const baseNoise = this.audioCtx.createBufferSource();
+        baseNoise.buffer = this.createNoiseBuffer('pink');
+        baseNoise.loop = true;
+
+        const filter = this.audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 500;
+        filter.Q.value = 0.4;
+
+        const baseGain = this.audioCtx.createGain();
+        baseGain.gain.value = this.volumes.spring * 0.4;
+
+        baseNoise.connect(filter);
+        filter.connect(baseGain);
+        baseGain.connect(this.audioCtx.destination);
+        baseNoise.start(0);
+
+        let active = true;
+        const triggerBubble = () => {
+            if (!this.states.spring || !active) return;
+            
+            const osc = this.audioCtx.createOscillator();
+            const gain = this.audioCtx.createGain();
+            
+            osc.type = 'sine';
+            const startFreq = 800 + Math.random() * 800;
+            osc.frequency.setValueAtTime(startFreq, this.audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(startFreq + 200, this.audioCtx.currentTime + 0.08);
+
+            gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(this.volumes.spring * 0.15, this.audioCtx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, this.audioCtx.currentTime + 0.08);
+
+            osc.connect(gain);
+            gain.connect(this.audioCtx.destination);
+            osc.start(0);
+            osc.stop(this.audioCtx.currentTime + 0.1);
+
+            setTimeout(triggerBubble, 50 + Math.random() * 200);
+        };
+        triggerBubble();
+
+        this.sources.spring = {
+            stop: () => {
+                active = false;
+                baseNoise.stop();
+            }
+        };
+        this.gains.spring = baseGain;
+    },
+
+    playBirds() {
+        let active = true;
+        const scheduleNextBirdCall = () => {
+            if (!this.states.birds || !active) return;
+
+            const now = this.audioCtx.currentTime;
+            const chirpCount = 2 + Math.floor(Math.random() * 3);
+            const baseFreq = 2200 + Math.random() * 1200;
+
+            for (let i = 0; i < chirpCount; i++) {
+                const chirpTime = now + i * 0.25;
+                
+                const osc = this.audioCtx.createOscillator();
+                const gain = this.audioCtx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(baseFreq, chirpTime);
+                osc.frequency.exponentialRampToValueAtTime(baseFreq - 500, chirpTime + 0.12);
+
+                gain.gain.setValueAtTime(0, chirpTime);
+                gain.gain.linearRampToValueAtTime(this.volumes.birds * 0.2, chirpTime + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, chirpTime + 0.12);
+
+                osc.connect(gain);
+                gain.connect(this.audioCtx.destination);
+
+                osc.start(chirpTime);
+                osc.stop(chirpTime + 0.15);
+            }
+
+            setTimeout(scheduleNextBirdCall, 5000 + Math.random() * 7000);
+        };
+        
+        scheduleNextBirdCall();
+        this.sources.birds = {
+            stop: () => {
+                active = false;
+            }
+        };
+        const dummyGain = this.audioCtx.createGain();
+        dummyGain.gain.value = this.volumes.birds;
+        this.gains.birds = dummyGain;
+    }
+};
+
+function bindSoundWidgetListeners() {
+    const types = ['birds', 'waves', 'spring', 'rain'];
+    types.forEach(type => {
+        const btnId = 'soundBtn' + type.charAt(0).toUpperCase() + type.slice(1);
+        const sliderId = 'soundVolume' + type.charAt(0).toUpperCase() + type.slice(1);
+        
+        const btn = document.getElementById(btnId);
+        const slider = document.getElementById(sliderId);
+        
+        if (btn) {
+            btn.addEventListener('click', () => {
+                BadaAudioManager.toggleSound(type);
+            });
+        }
+        
+        if (slider) {
+            slider.addEventListener('input', (e) => {
+                BadaAudioManager.setVolume(type, e.target.value);
+            });
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    bindSoundWidgetListeners();
+});
+
 // Setup PDF.js Worker safely to avoid startup crashes if library is blocked/delayed
 const pdfjsLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
 if (pdfjsLib) {
@@ -62,6 +345,8 @@ const btnToggleFont = document.getElementById('btnToggleFont');
 const btnClear = document.getElementById('btnClear');
 const tabEdit = document.getElementById('tabEdit');
 const tabHighlight = document.getElementById('tabHighlight');
+const tabDomeViewer = document.getElementById('tabDomeViewer');
+const domeLauncherView = document.getElementById('domeLauncherView');
 const summaryRatioSlider = document.getElementById('summaryRatioSlider');
 const summaryRatioVal = document.getElementById('summaryRatioVal');
 const summaryPreviewSection = document.getElementById('summaryPreviewSection');
@@ -119,26 +404,26 @@ function showToast(message, type = 'info') {
 }
 
 function setLoader(active, text = "처리 중입니다...") {
-    loaderText.innerText = text;
+    if (loaderText) loaderText.innerText = text;
     if (active) {
-        editorLoader.classList.add('active');
+        editorLoader?.classList.add('active');
     } else {
-        editorLoader.classList.remove('active');
+        editorLoader?.classList.remove('active');
     }
 }
 
 // Dark/Light Theme toggler
-themeToggleBtn.addEventListener('click', () => {
+themeToggleBtn?.addEventListener('click', () => {
     if (state.theme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'light');
-        themeIconSun.style.display = 'none';
-        themeIconMoon.style.display = 'block';
+        if (themeIconSun) themeIconSun.style.display = 'none';
+        if (themeIconMoon) themeIconMoon.style.display = 'block';
         state.theme = 'light';
         showToast('밝은 테마로 변경되었습니다.', 'info');
     } else {
         document.documentElement.removeAttribute('data-theme');
-        themeIconSun.style.display = 'block';
-        themeIconMoon.style.display = 'none';
+        if (themeIconSun) themeIconSun.style.display = 'block';
+        if (themeIconMoon) themeIconMoon.style.display = 'none';
         state.theme = 'dark';
         showToast('어두운 테마로 변경되었습니다.', 'info');
     }
@@ -156,44 +441,48 @@ function updateTextStats(text) {
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     const sentences = splitSentences(text).length;
     
-    charCountWithSpaces.innerText = charsWithSpaces.toLocaleString();
-    charCountNoSpaces.innerText = charsNoSpaces.toLocaleString();
-    wordCount.innerText = words.toLocaleString();
-    sentenceCount.innerText = sentences.toLocaleString();
+    if (charCountWithSpaces) charCountWithSpaces.innerText = charsWithSpaces.toLocaleString();
+    if (charCountNoSpaces) charCountNoSpaces.innerText = charsNoSpaces.toLocaleString();
+    if (wordCount) wordCount.innerText = words.toLocaleString();
+    if (sentenceCount) sentenceCount.innerText = sentences.toLocaleString();
     
     if (charsWithSpaces > 0) {
-        docStatus.innerText = '작성 중 / 분석 완료';
-        docStatus.style.color = 'var(--accent-primary)';
-        summaryPreviewSection.style.display = 'block';
+        if (docStatus) {
+            docStatus.innerText = '작성 중 / 분석 완료';
+            docStatus.style.color = 'var(--accent-primary)';
+        }
+        if (summaryPreviewSection) summaryPreviewSection.style.display = 'block';
     } else {
-        docStatus.innerText = '비어 있음';
-        docStatus.style.color = 'var(--text-muted)';
-        summaryPreviewSection.style.display = 'none';
+        if (docStatus) {
+            docStatus.innerText = '비어 있음';
+            docStatus.style.color = 'var(--text-muted)';
+        }
+        if (summaryPreviewSection) summaryPreviewSection.style.display = 'none';
     }
     
     // Live update summary on change
     generateLiveSummary();
 }
 
-documentEditor.addEventListener('input', (e) => {
+documentEditor?.addEventListener('input', (e) => {
     updateTextStats(e.target.value);
 });
 
 // Toggle editor monospace/sans font style
-btnToggleFont.addEventListener('click', () => {
-    documentEditor.classList.toggle('code-mode');
+btnToggleFont?.addEventListener('click', () => {
+    documentEditor?.classList.toggle('code-mode');
     showToast('에디터 글꼴 스타일이 전환되었습니다.', 'info');
 });
 
 // Reset / Clear editor
-btnClear.addEventListener('click', () => {
+btnClear?.addEventListener('click', () => {
     if (confirm('작성 중인 문서 내용 및 가져온 파일 정보가 모두 지워집니다. 계속하시겠습니까?')) {
-        documentEditor.value = '';
+        if (documentEditor) documentEditor.value = '';
         state.currentDocName = '새 문서.txt';
         state.importedFile = null;
-        activeDocName.innerText = '새 문서.txt';
-        importedFilesContainer.style.display = 'none';
-        importedFilesList.innerHTML = '';
+        if (activeDocName) activeDocName.innerText = '새 문서.txt';
+        if (importedFilesContainer) importedFilesContainer.style.display = 'none';
+        if (importedFilesList) importedFilesList.innerHTML = '';
         updateTextStats('');
         showToast('에디터가 초기화되었습니다.', 'success');
     }
@@ -204,16 +493,16 @@ btnClear.addEventListener('click', () => {
    ========================================== */
 
 // Drag & Drop event bindings
-dropZone.addEventListener('dragover', (e) => {
+dropZone?.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropZone.classList.add('dragover');
 });
 
-dropZone.addEventListener('dragleave', () => {
+dropZone?.addEventListener('dragleave', () => {
     dropZone.classList.remove('dragover');
 });
 
-dropZone.addEventListener('drop', (e) => {
+dropZone?.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
     const files = e.dataTransfer.files;
@@ -222,9 +511,10 @@ dropZone.addEventListener('drop', (e) => {
     }
 });
 
-fileInput.addEventListener('change', (e) => {
+fileInput?.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
         handleFileImport(e.target.files[0]);
+        fileInput.value = ""; // Reset value so change event triggers again for the same file
     }
 });
 
@@ -280,29 +570,31 @@ async function handleFileImport(file) {
 }
 
 function renderImportedFileInfo(file, ext) {
-    importedFilesContainer.style.display = 'block';
+    if (importedFilesContainer) importedFilesContainer.style.display = 'block';
     const sizeStr = formatBytes(file.size);
     
-    importedFilesList.innerHTML = `
-        <div class="file-item">
-            <div class="file-info">
-                <div class="file-type-icon file-type-${ext}">${ext}</div>
-                <div class="file-meta">
-                    <div class="file-name" title="${file.name}">${file.name}</div>
-                    <div class="file-size">${sizeStr}</div>
+    if (importedFilesList) {
+        importedFilesList.innerHTML = `
+            <div class="file-item">
+                <div class="file-info">
+                    <div class="file-type-icon file-type-${ext}">${ext}</div>
+                    <div class="file-meta">
+                        <div class="file-name" title="${file.name}">${file.name}</div>
+                        <div class="file-size">${sizeStr}</div>
+                    </div>
                 </div>
+                <button class="btn-remove-file" id="btnRemoveFile" title="가져온 파일 제거">
+                    <i data-lucide="x"></i>
+                </button>
             </div>
-            <button class="btn-remove-file" id="btnRemoveFile" title="가져온 파일 제거">
-                <i data-lucide="x"></i>
-            </button>
-        </div>
-    `;
+        `;
+    }
     lucide.createIcons();
     
-    document.getElementById('btnRemoveFile').addEventListener('click', () => {
+    document.getElementById('btnRemoveFile')?.addEventListener('click', () => {
         state.importedFile = null;
-        importedFilesContainer.style.display = 'none';
-        importedFilesList.innerHTML = '';
+        if (importedFilesContainer) importedFilesContainer.style.display = 'none';
+        if (importedFilesList) importedFilesList.innerHTML = '';
         showToast('가져온 파일 정보가 해제되었습니다.', 'info');
     });
 }
@@ -557,21 +849,31 @@ function generateLiveSummary() {
     
     // Fill tabs in Highlight view
     // 1. Highlighted Original
-    originalTextHighlighted.innerHTML = result.highlights.map(item => {
+    originalTextHighlighted.innerHTML = '';
+    result.highlights.forEach(item => {
+        const span = document.createElement('span');
+        span.textContent = item.sentence;
         if (item.isSummary) {
-            return `<span class="highlight-sentence" title="중요 문장">${escapeXml(item.sentence)}</span>`;
+            span.className = 'highlight-sentence';
+            span.title = '중요 문장';
         }
-        return `<span>${escapeXml(item.sentence)}</span>`;
-    }).join(" ");
+        originalTextHighlighted.appendChild(span);
+        originalTextHighlighted.appendChild(document.createTextNode(' '));
+    });
     
     // 2. Clean Summary text
-    summaryTextOutput.innerHTML = result.summarySentences.map(s => `<p>${escapeXml(s)}</p>`).join("");
+    summaryTextOutput.innerHTML = '';
+    result.summarySentences.forEach(s => {
+        const p = document.createElement('p');
+        p.textContent = s;
+        summaryTextOutput.appendChild(p);
+    });
 }
 
 // Slider listeners
-summaryRatioSlider.addEventListener('input', (e) => {
+summaryRatioSlider?.addEventListener('input', (e) => {
     state.summaryRatio = parseInt(e.target.value);
-    summaryRatioVal.innerText = `${state.summaryRatio}%`;
+    if (summaryRatioVal) summaryRatioVal.innerText = `${state.summaryRatio}%`;
     generateLiveSummary();
 });
 
@@ -579,23 +881,40 @@ summaryRatioSlider.addEventListener('input', (e) => {
    5. Tab switching: Editor vs. Highlight Split
    ========================================== */
 
-tabEdit.addEventListener('click', () => {
-    tabEdit.classList.add('active');
-    tabHighlight.classList.remove('active');
-    documentEditor.style.display = 'block';
-    splitEditorView.style.display = 'none';
+tabEdit?.addEventListener('click', () => {
+    tabEdit?.classList.add('active');
+    tabHighlight?.classList.remove('active');
+    tabDomeViewer?.classList.remove('active');
+    if (documentEditor) documentEditor.style.display = 'block';
+    if (splitEditorView) splitEditorView.style.display = 'none';
+    if (domeLauncherView) domeLauncherView.style.display = 'none';
     state.activeTab = 'edit';
 });
 
-tabHighlight.addEventListener('click', () => {
-    tabHighlight.classList.add('active');
-    tabEdit.classList.remove('active');
-    documentEditor.style.display = 'none';
-    splitEditorView.style.display = 'grid';
+tabHighlight?.addEventListener('click', () => {
+    tabHighlight?.classList.add('active');
+    tabEdit?.classList.remove('active');
+    tabDomeViewer?.classList.remove('active');
+    if (documentEditor) documentEditor.style.display = 'none';
+    if (splitEditorView) splitEditorView.style.display = 'grid';
+    if (domeLauncherView) domeLauncherView.style.display = 'none';
     state.activeTab = 'highlight';
     
     // Trigger update just in case
     generateLiveSummary();
+});
+
+tabDomeViewer?.addEventListener('click', () => {
+    tabDomeViewer?.classList.add('active');
+    tabEdit?.classList.remove('active');
+    tabHighlight?.classList.remove('active');
+    if (documentEditor) documentEditor.style.display = 'none';
+    if (splitEditorView) splitEditorView.style.display = 'none';
+    if (domeLauncherView) domeLauncherView.style.display = 'flex';
+    state.activeTab = 'dome';
+    
+    // Initialize/Launch the integrated CAD and drawing explorer and viewer
+    initCadViewer();
 });
 
 /* ==========================================
@@ -604,10 +923,10 @@ tabHighlight.addEventListener('click', () => {
 
 // Export format selection
 Object.keys(exportBtns).forEach(format => {
-    exportBtns[format].addEventListener('click', () => {
+    exportBtns[format]?.addEventListener('click', () => {
         // Toggle active design styles
-        Object.keys(exportBtns).forEach(f => exportBtns[f].classList.remove('active'));
-        exportBtns[format].classList.add('active');
+        Object.keys(exportBtns).forEach(f => exportBtns[f]?.classList.remove('active'));
+        exportBtns[format]?.classList.add('active');
         state.exportFormat = format;
         
         // Update download button descriptive text
@@ -615,13 +934,13 @@ Object.keys(exportBtns).forEach(format => {
         if (format === 'hwpx') koreanFormatName = '한글 HWPX';
         if (format === 'java') koreanFormatName = '자바 Java';
         
-        downloadBtnText.innerText = `${koreanFormatName} 포맷으로 기기에 저장 (다운로드)`;
+        if (downloadBtnText) downloadBtnText.innerText = `${koreanFormatName} 포맷으로 기기에 저장 (다운로드)`;
     });
 });
 
 // Main Action Trigger for Downloads
-btnDownload.addEventListener('click', async () => {
-    const text = documentEditor.value.trim();
+btnDownload?.addEventListener('click', async () => {
+    const text = documentEditor ? documentEditor.value.trim() : '';
     if (!text) {
         showToast('에디터에 텍스트 내용이 없습니다. 먼저 작성 또는 파일을 로드해 주세요.', 'error');
         return;
@@ -1004,21 +1323,27 @@ const diagnosticsChevron = document.getElementById('diagnosticsChevron');
 const btnRunDiagnostics = document.getElementById('btnRunDiagnostics');
 const diagnosticsResults = document.getElementById('diagnosticsResults');
 
-diagnosticsHeader.addEventListener('click', () => {
-    if (diagnosticsPanel.style.display === 'none' || !diagnosticsPanel.style.display) {
-        diagnosticsPanel.style.display = 'flex';
-        diagnosticsChevron.style.transform = 'rotate(180deg)';
-    } else {
-        diagnosticsPanel.style.display = 'none';
-        diagnosticsChevron.style.transform = 'rotate(0deg)';
+diagnosticsHeader?.addEventListener('click', () => {
+    if (diagnosticsPanel) {
+        if (diagnosticsPanel.style.display === 'none' || !diagnosticsPanel.style.display) {
+            diagnosticsPanel.style.display = 'flex';
+            if (diagnosticsChevron) diagnosticsChevron.style.transform = 'rotate(180deg)';
+        } else {
+            diagnosticsPanel.style.display = 'none';
+            if (diagnosticsChevron) diagnosticsChevron.style.transform = 'rotate(0deg)';
+        }
     }
 });
 
-btnRunDiagnostics.addEventListener('click', async () => {
-    diagnosticsResults.style.display = 'flex';
-    diagnosticsResults.innerHTML = ''; // Reset results
-    btnRunDiagnostics.disabled = true;
-    btnRunDiagnostics.style.opacity = '0.6';
+btnRunDiagnostics?.addEventListener('click', async () => {
+    if (diagnosticsResults) {
+        diagnosticsResults.style.display = 'flex';
+        diagnosticsResults.innerHTML = ''; // Reset results
+    }
+    if (btnRunDiagnostics) {
+        btnRunDiagnostics.disabled = true;
+        btnRunDiagnostics.style.opacity = '0.6';
+    }
     
     showToast('시스템 자가 진단 및 기능 검증을 시작합니다.', 'info');
     
@@ -1179,8 +1504,10 @@ btnRunDiagnostics.addEventListener('click', async () => {
         showToast('일부 검증 테스트 항목이 실패했습니다. 콘솔을 확인해 주세요.', 'error');
     }
     
-    btnRunDiagnostics.disabled = false;
-    btnRunDiagnostics.style.opacity = '1';
+    if (btnRunDiagnostics) {
+        btnRunDiagnostics.disabled = false;
+        btnRunDiagnostics.style.opacity = '1';
+    }
 });
 
 /* ==========================================
@@ -1205,16 +1532,16 @@ const btnSendEmail = document.getElementById('btnSendEmail');
 const btnSendSms = document.getElementById('btnSendSms');
 
 // 1. EmailJS Send Handler
-btnSendEmail.addEventListener('click', async () => {
-    const email = emailRecipient.value.trim();
-    const senderName = emailSenderName.value.trim() || "OmniConvert";
-    const customMessageText = emailCustomMessage.value.trim();
-    const text = documentEditor.value.trim();
+btnSendEmail?.addEventListener('click', async () => {
+    const email = emailRecipient ? emailRecipient.value.trim() : '';
+    const senderName = (emailSenderName ? emailSenderName.value.trim() : '') || "OmniConvert";
+    const customMessageText = emailCustomMessage ? emailCustomMessage.value.trim() : '';
+    const text = documentEditor ? documentEditor.value.trim() : '';
     
     // Validations
     if (!email) {
         showToast('수신자 이메일 주소를 입력해 주세요.', 'error');
-        emailRecipient.focus();
+        emailRecipient?.focus();
         return;
     }
     
@@ -1239,8 +1566,10 @@ btnSendEmail.addEventListener('click', async () => {
     }
     
     setLoader(true, '이메일을 작성하여 발송하고 있습니다...');
-    btnSendEmail.disabled = true;
-    btnSendEmail.style.opacity = '0.6';
+    if (btnSendEmail) {
+        btnSendEmail.disabled = true;
+        btnSendEmail.style.opacity = '0.6';
+    }
     
     try {
         // Calculate summary
@@ -1288,21 +1617,23 @@ btnSendEmail.addEventListener('click', async () => {
         showToast(`이메일 전송 실패: ${err.text || err.message || JSON.stringify(err)}`, 'error');
     } finally {
         setLoader(false);
-        btnSendEmail.disabled = false;
-        btnSendEmail.style.opacity = '1';
+        if (btnSendEmail) {
+            btnSendEmail.disabled = false;
+            btnSendEmail.style.opacity = '1';
+        }
     }
 });
 
 // 2. Mobile SMS Send Handler
-btnSendSms.addEventListener('click', (e) => {
-    const text = documentEditor.value.trim();
+btnSendSms?.addEventListener('click', (e) => {
+    const text = documentEditor ? documentEditor.value.trim() : '';
     if (!text) {
         showToast('문자로 전송할 내용이 없습니다. 먼저 문서를 작성해 주세요.', 'error');
         e.preventDefault();
         return;
     }
     
-    const customMessageText = emailCustomMessage.value.trim();
+    const customMessageText = emailCustomMessage ? emailCustomMessage.value.trim() : '';
     const summaryResult = calculateTfidfSummarizer(text, state.summaryRatio);
     
     // Compile SMS message content
@@ -1329,6 +1660,1364 @@ btnSendSms.addEventListener('click', (e) => {
     const separator = isIOS ? '&' : '?';
     
     // Set dynamic href
-    btnSendSms.href = `sms:${separator}body=${encodeURIComponent(smsBody)}`;
+    if (btnSendSms) btnSendSms.href = `sms:${separator}body=${encodeURIComponent(smsBody)}`;
     showToast('모바일 메시지 전송 앱으로 연결합니다.', 'success');
 });
+
+
+/* ==========================================================================
+   OmniCAD & Media Viewer Integration (100% Client-Side Engine)
+   ========================================================================== */
+
+const cadState = {
+    files: [],
+    activeFile: null,
+    searchQuery: '',
+    currentFilter: 'all'
+};
+
+const cadDxfState = {
+    entities: [],
+    zoom: 1.0,
+    panX: 0,
+    panY: 0,
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 }
+};
+
+const cadImgState = {
+    zoom: 1.0,
+    panX: 0,
+    panY: 0,
+    isDragging: false,
+    startX: 0,
+    startY: 0
+};
+
+const cadPdfState = {
+    pdfInstance: null,
+    currentPage: 1,
+    totalPages: 1,
+    currentPath: ''
+};
+
+const cadThreeState = {
+    scene: null,
+    camera: null,
+    renderer: null,
+    controls: null,
+    activeMesh: null,
+    animationId: null,
+    resizeObserver: null,
+    isWireframe: false
+};
+
+// UI Elements for CAD Viewer
+let btnCadRefresh, cadFileSearch, cadExplorerTree;
+let cadViewportMetadataBar, cadActiveFileName, cadActiveFileSize, cadActiveFilePath, cadFileExtBadge;
+let cadBtnOpenNative, cadBtnDownloadFile, cadViewportDisplayArea, cadNoSelectionScreen, cadViewportLoader, cadViewportLoaderText;
+let cadDxfViewportContainer, cadDxfCanvas;
+let cadBtnZoomIn, cadBtnZoomOut, cadBtnFit, cadHudCoords;
+let cadMesh3dViewportContainer, cadThreeJsContainer;
+let cadBtn3dWireframe, cadBtn3dReset;
+let cadImageViewportContainer, cadZoomableImageWrapper, cadInteractiveImage;
+let cadBtnImgZoomIn, cadBtnImgZoomOut, cadBtnImgReset;
+let cadPdfViewportContainer, cadPdfRenderingArea;
+let cadBtnPdfPrev, cadBtnPdfNext, cadPdfCurrentPage, cadPdfTotalPages;
+let cadProprietaryFallbackScreen, cadFallbackSoftwareIcon, cadFallbackFormatName;
+let cadAutolinkPreviewBox, cadAutolinkActions, cadBtnFallbackOpenNative;
+let cadExportGuideText, cadExportManualContent;
+
+let isCadViewerInitialized = false;
+
+function initCadViewer() {
+    if (isCadViewerInitialized) {
+        fetchCadProjectFiles();
+        return;
+    }
+    
+    // Bind all elements
+    btnCadRefresh = document.getElementById('btnCadRefresh');
+    cadFileSearch = document.getElementById('cadFileSearch');
+    cadExplorerTree = document.getElementById('cadExplorerTree');
+    
+    cadViewportMetadataBar = document.getElementById('cadViewportMetadataBar');
+    cadActiveFileName = document.getElementById('cadActiveFileName');
+    cadActiveFileSize = document.getElementById('cadActiveFileSize');
+    cadActiveFilePath = document.getElementById('cadActiveFilePath');
+    cadFileExtBadge = document.getElementById('cadFileExtBadge');
+    
+    cadBtnOpenNative = document.getElementById('cadBtnOpenNative');
+    cadBtnDownloadFile = document.getElementById('cadBtnDownloadFile');
+    cadViewportDisplayArea = document.getElementById('cadViewportDisplayArea');
+    cadNoSelectionScreen = document.getElementById('cadNoSelectionScreen');
+    cadViewportLoader = document.getElementById('cadViewportLoader');
+    cadViewportLoaderText = document.getElementById('cadViewportLoaderText');
+    
+    cadDxfViewportContainer = document.getElementById('cadDxfViewportContainer');
+    cadDxfCanvas = document.getElementById('cadDxfCanvas');
+    cadBtnZoomIn = document.getElementById('cadBtnZoomIn');
+    cadBtnZoomOut = document.getElementById('cadBtnZoomOut');
+    cadBtnFit = document.getElementById('cadBtnFit');
+    cadHudCoords = document.getElementById('cadHudCoords');
+    
+    cadMesh3dViewportContainer = document.getElementById('cadMesh3dViewportContainer');
+    cadThreeJsContainer = document.getElementById('cadThreeJsContainer');
+    cadBtn3dWireframe = document.getElementById('cadBtn3dWireframe');
+    cadBtn3dReset = document.getElementById('cadBtn3dReset');
+    
+    cadImageViewportContainer = document.getElementById('cadImageViewportContainer');
+    cadZoomableImageWrapper = document.getElementById('cadZoomableImageWrapper');
+    cadInteractiveImage = document.getElementById('cadInteractiveImage');
+    cadBtnImgZoomIn = document.getElementById('cadBtnImgZoomIn');
+    cadBtnImgZoomOut = document.getElementById('cadBtnImgZoomOut');
+    cadBtnImgReset = document.getElementById('cadBtnImgReset');
+    
+    cadPdfViewportContainer = document.getElementById('cadPdfViewportContainer');
+    cadPdfRenderingArea = document.getElementById('cadPdfRenderingArea');
+    cadBtnPdfPrev = document.getElementById('cadBtnPdfPrev');
+    cadBtnPdfNext = document.getElementById('cadBtnPdfNext');
+    cadPdfCurrentPage = document.getElementById('cadPdfCurrentPage');
+    cadPdfTotalPages = document.getElementById('cadPdfTotalPages');
+    
+    cadProprietaryFallbackScreen = document.getElementById('cadProprietaryFallbackScreen');
+    cadFallbackSoftwareIcon = document.getElementById('cadFallbackSoftwareIcon');
+    cadFallbackFormatName = document.getElementById('cadFallbackFormatName');
+    
+    cadAutolinkPreviewBox = document.getElementById('cadAutolinkPreviewBox');
+    cadAutolinkActions = document.getElementById('cadAutolinkActions');
+    cadBtnFallbackOpenNative = document.getElementById('cadBtnFallbackOpenNative');
+    cadExportGuideText = document.getElementById('cadExportGuideText');
+    cadExportManualContent = document.getElementById('cadExportManualContent');
+    
+    // Bind listeners
+    btnCadRefresh.addEventListener('click', () => {
+        cadState.activeFile = null;
+        if (cadViewportMetadataBar) cadViewportMetadataBar.style.display = 'none';
+        const commentsSec = document.getElementById('cadCommentsSection');
+        if (commentsSec) commentsSec.style.display = 'none';
+        fetchCadProjectFiles();
+        showToast('설계 파일 트리 리스트를 새로고침했습니다.', 'success');
+    });
+    
+    cadFileSearch.addEventListener('input', (e) => {
+        cadState.searchQuery = e.target.value;
+        applyCadFilters();
+    });
+    
+    const triggerOpenNativeCad = async () => {
+        if (!cadState.activeFile) return;
+        showToast('로컬 네이티브 설계 소프트웨어를 연동 실행하고 있습니다...', 'info');
+        try {
+            const response = await fetch(getApiUrl(`/api/open_file?path=${encodeURIComponent(cadState.activeFile.path)}`));
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const result = await response.json();
+            if (result.status === 'success') {
+                showToast(result.message, 'success');
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('로컬 프로그램 실행에 실패했습니다. (API 오류)', 'error');
+        }
+    };
+    
+    cadBtnOpenNative.addEventListener('click', triggerOpenNativeCad);
+    cadBtnFallbackOpenNative.addEventListener('click', triggerOpenNativeCad);
+    
+    // Image view controllers
+    cadBtnImgZoomIn.addEventListener('click', () => {
+        cadImgState.zoom *= 1.25;
+        updateCadImgTransform();
+    });
+    cadBtnImgZoomOut.addEventListener('click', () => {
+        cadImgState.zoom /= 1.25;
+        updateCadImgTransform();
+    });
+    cadBtnImgReset.addEventListener('click', () => {
+        cadImgState.zoom = 1.0;
+        cadImgState.panX = 0;
+        cadImgState.panY = 0;
+        updateCadImgTransform();
+    });
+    
+    // Image drag listeners
+    cadZoomableImageWrapper.addEventListener('mousedown', (e) => {
+        if (cadState.activeFile && ['jpg', 'jpeg', 'png', 'gif'].includes(cadState.activeFile.ext)) {
+            cadImgState.isDragging = true;
+            cadImgState.startX = e.clientX - cadImgState.panX;
+            cadImgState.startY = e.clientY - cadImgState.panY;
+        }
+    });
+    
+    window.addEventListener('mousemove', (e) => {
+        if (cadImgState.isDragging) {
+            cadImgState.panX = e.clientX - cadImgState.startX;
+            cadImgState.panY = e.clientY - cadImgState.startY;
+            updateCadImgTransform();
+        }
+    });
+    
+    window.addEventListener('mouseup', () => {
+        cadImgState.isDragging = false;
+    });
+    
+    // Image wheel zoom
+    cadZoomableImageWrapper.addEventListener('wheel', (e) => {
+        if (cadState.activeFile && ['jpg', 'jpeg', 'png', 'gif'].includes(cadState.activeFile.ext)) {
+            e.preventDefault();
+            const factor = 1.1;
+            if (e.deltaY < 0) cadImgState.zoom *= factor;
+            else cadImgState.zoom /= factor;
+            cadImgState.zoom = Math.max(0.1, Math.min(10, cadImgState.zoom));
+            updateCadImgTransform();
+        }
+    }, { passive: false });
+    
+    // DXF canvas controls
+    cadBtnZoomIn.addEventListener('click', () => {
+        const midX = cadDxfCanvas.width / 2;
+        const midY = cadDxfCanvas.height / 2;
+        const cadPt = toCadCoords(midX, midY);
+        cadDxfState.zoom *= 1.25;
+        cadDxfState.panX = midX - cadPt.x * cadDxfState.zoom;
+        cadDxfState.panY = midY + cadPt.y * cadDxfState.zoom;
+        drawCadDxf();
+    });
+    
+    cadBtnZoomOut.addEventListener('click', () => {
+        const midX = cadDxfCanvas.width / 2;
+        const midY = cadDxfCanvas.height / 2;
+        const cadPt = toCadCoords(midX, midY);
+        cadDxfState.zoom /= 1.25;
+        cadDxfState.panX = midX - cadPt.x * cadDxfState.zoom;
+        cadDxfState.panY = midY + cadPt.y * cadDxfState.zoom;
+        drawCadDxf();
+    });
+    
+    cadBtnFit.addEventListener('click', () => {
+        fitCadDxfToViewport();
+        drawCadDxf();
+    });
+    
+    // DXF Drag pan
+    cadDxfCanvas.addEventListener('mousedown', (e) => {
+        cadDxfState.isDragging = true;
+        cadDxfState.startX = e.clientX - cadDxfState.panX;
+        cadDxfState.startY = e.clientY - cadDxfState.panY;
+    });
+    
+    window.addEventListener('mousemove', (e) => {
+        if (cadDxfState.isDragging) {
+            cadDxfState.panX = e.clientX - cadDxfState.startX;
+            cadDxfState.panY = e.clientY - cadDxfState.startY;
+            drawCadDxf();
+        }
+        
+        if (cadState.activeFile && cadState.activeFile.ext === 'dxf') {
+            const rect = cadDxfCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            if (mouseX >= 0 && mouseX <= cadDxfCanvas.width && mouseY >= 0 && mouseY <= cadDxfCanvas.height) {
+                const cadPt = toCadCoords(mouseX, mouseY);
+                cadHudCoords.innerText = `X: ${cadPt.x.toFixed(2)}, Y: ${cadPt.y.toFixed(2)}`;
+            }
+        }
+    });
+    
+    window.addEventListener('mouseup', () => {
+        cadDxfState.isDragging = false;
+    });
+    
+    // DXF wheel zoom
+    cadDxfCanvas.addEventListener('wheel', (e) => {
+        if (cadState.activeFile && cadState.activeFile.ext === 'dxf') {
+            e.preventDefault();
+            const rect = cadDxfCanvas.getBoundingClientRect();
+            const sx = e.clientX - rect.left;
+            const sy = e.clientY - rect.top;
+            const cadPt = toCadCoords(sx, sy);
+            
+            const factor = 1.15;
+            if (e.deltaY < 0) cadDxfState.zoom *= factor;
+            else cadDxfState.zoom /= factor;
+            
+            cadDxfState.zoom = Math.max(0.01, Math.min(200, cadDxfState.zoom));
+            cadDxfState.panX = sx - cadPt.x * cadDxfState.zoom;
+            cadDxfState.panY = sy + cadPt.y * cadDxfState.zoom;
+            
+            drawCadDxf();
+        }
+    }, { passive: false });
+    
+    // 3D wireframe and camera controls
+    cadBtn3dWireframe.addEventListener('click', () => {
+        if (!cadThreeState.activeMesh) return;
+        cadThreeState.isWireframe = !cadThreeState.isWireframe;
+        
+        const setWire = (m) => { if (m.material) m.material.wireframe = cadThreeState.isWireframe; };
+        if (cadThreeState.activeMesh.traverse) {
+            cadThreeState.activeMesh.traverse(child => { if (child.isMesh) setWire(child); });
+        } else {
+            setWire(cadThreeState.activeMesh);
+        }
+        showToast(cadThreeState.isWireframe ? '와이어프레임 모드로 변경' : '솔리드 셰이딩 모드로 변경', 'info');
+    });
+    
+    cadBtn3dReset.addEventListener('click', () => {
+        if (!cadThreeState.activeMesh || !cadThreeState.camera) return;
+        const box = new THREE.Box3().setFromObject(cadThreeState.activeMesh);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        cadThreeState.camera.position.set(maxDim * 1.2, maxDim * 1.2, maxDim * 1.5);
+        cadThreeState.controls.target.set(0, size.y / 2, 0);
+        cadThreeState.controls.update();
+    });
+    
+    // PDF buttons
+    cadBtnPdfPrev.addEventListener('click', () => {
+        if (cadPdfState.currentPage > 1) {
+            cadPdfState.currentPage--;
+            renderCadPdfPage(cadPdfState.currentPage);
+        }
+    });
+    
+    cadBtnPdfNext.addEventListener('click', () => {
+        if (cadPdfState.currentPage < cadPdfState.totalPages) {
+            cadPdfState.currentPage++;
+            renderCadPdfPage(cadPdfState.currentPage);
+        }
+    });
+    
+    // Resizing triggers canvas adjustment
+    window.addEventListener('resize', () => {
+        if (cadState.activeFile && cadState.activeFile.ext === 'dxf') {
+            fitCadDxfToViewport();
+            drawCadDxf();
+        }
+    });
+    
+    // Comments form listener
+    const cForm = document.getElementById('cadCommentForm');
+    if (cForm) {
+        cForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submitCadComment();
+        });
+    }
+    
+    isCadViewerInitialized = true;
+    fetchCadProjectFiles();
+}
+
+function setCadViewportLoader(active, text = '도면을 읽는 중...') {
+    cadViewportLoaderText.innerText = text;
+    cadViewportLoader.style.display = active ? 'flex' : 'none';
+}
+
+function getApiUrl(endpoint) {
+    if (window.location.protocol === 'file:') {
+        return `http://localhost:8000${endpoint}`;
+    }
+    return endpoint;
+}
+
+function getFileUrl(path) {
+    if (window.location.protocol === 'file:') {
+        if (path.startsWith('http://') || path.startsWith('https://')) return path;
+        return `http://localhost:8000/${path}`;
+    }
+    return path;
+}
+
+async function fetchCadProjectFiles() {
+    cadExplorerTree.innerHTML = '<div class="loading-spinner-center"><div class="spinner" style="width:16px;height:16px;"></div><p style="font-size:0.75rem;margin-top:0.3rem;">파일 목록 스캔 중...</p></div>';
+    try {
+        const response = await fetch(getApiUrl('/api/list_files'));
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        cadState.files = data;
+        applyCadFilters();
+    } catch (err) {
+        console.error("실시간 자산 동기화 실패. 데모 데이터로 로딩합니다.", err);
+        showToast("로컬 서버 미작동. 데모용 기본 파일 목록을 로드했습니다.", "info");
+        cadState.files = [
+            { name: "greenhouse_details.dxf", path: "greenhouse_details.dxf", size: 20259, ext: "dxf" },
+            { name: "greenhouse_layout.dxf", path: "greenhouse_layout.dxf", size: 22167, ext: "dxf" },
+            { name: "greenhouse_render.png", path: "greenhouse_render.png", size: 1099860, ext: "png" },
+            { name: "dome_design_render.png", path: "dome_design_render.png", size: 928411, ext: "png" },
+            { name: "dome_detailed_blueprint.png", path: "dome_detailed_blueprint.png", size: 967849, ext: "png" },
+            { name: "dome_part_drawings.png", path: "dome_part_drawings.png", size: 904690, ext: "png" },
+            { name: "yanggu_haean_hybrid_z15.png", path: "yanggu_haean_hybrid_z15.png", size: 7752779, ext: "png" },
+            { name: "yanggu_all_crop_transitions.csv", path: "yanggu_all_crop_transitions.csv", size: 23105, ext: "csv" },
+            { name: "nature_calendar_bg.png", path: "nature_calendar_bg.png", size: 636587, ext: "png" },
+            { name: "sea_background.png", path: "sea_background.png", size: 976094, ext: "png" }
+        ];
+        applyCadFilters();
+    }
+}
+
+function applyCadFilters() {
+    let filtered = cadState.files;
+    if (cadState.searchQuery) {
+        const q = cadState.searchQuery.toLowerCase();
+        filtered = filtered.filter(f => f.name.toLowerCase().includes(q));
+    }
+    renderCadExplorerTree(filtered);
+    if (cadState.activeFile === null) {
+        renderCadBehanceGrid(filtered);
+    }
+}
+
+function renderCadExplorerTree(files) {
+    cadExplorerTree.innerHTML = '';
+    
+    if (files.length === 0) {
+        cadExplorerTree.innerHTML = '<p style="font-size:0.75rem;color:var(--text-muted);padding:1rem;text-align:center;">도면 파일 없음</p>';
+        return;
+    }
+    
+    const groups = {};
+    files.forEach(f => {
+        let folder = '루트 폴더';
+        if (f.path.includes('/')) {
+            folder = f.path.substring(0, f.path.lastIndexOf('/'));
+        }
+        if (!groups[folder]) groups[folder] = [];
+        groups[folder].push(f);
+    });
+    
+    const sortedFolders = Object.keys(groups).sort((a,b) => {
+        if (a === '루트 폴더') return -1;
+        if (b === '루트 폴더') return 1;
+        return a.localeCompare(b);
+    });
+    
+    sortedFolders.forEach(folder => {
+        const folderDiv = document.createElement('div');
+        folderDiv.className = 'folder-group';
+        
+        const title = document.createElement('div');
+        title.className = 'folder-title';
+        title.innerHTML = `<i data-lucide="folder" style="width: 12px; height: 12px;"></i><span>${folder}</span>`;
+        folderDiv.appendChild(title);
+        
+        const sortedFiles = groups[folder].sort((a,b) => a.name.localeCompare(b.name));
+        sortedFiles.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'tree-file-item';
+            if (cadState.activeFile && cadState.activeFile.path === file.path) {
+                item.classList.add('active');
+            }
+            
+            const sizeStr = formatBytes(file.size);
+            item.innerHTML = `
+                <div class="tree-file-left">
+                    <div class="tree-file-icon badge-${file.ext}" style="font-size:0.6rem;width:24px;height:24px;border-radius:4px;">${file.ext}</div>
+                    <div class="tree-file-details">
+                        <div class="tree-file-name" style="font-size:0.78rem;" title="${file.name}">${file.name}</div>
+                        <div class="tree-file-size" style="font-size:0.65rem;">${sizeStr}</div>
+                    </div>
+                </div>
+            `;
+            
+            item.addEventListener('click', () => {
+                const items = document.querySelectorAll('#cadExplorerTree .tree-file-item');
+                if (items) {
+                    items.forEach(el => el.classList.remove('active'));
+                }
+                item.classList.add('active');
+                selectCadFile(file);
+            });
+            
+            folderDiv.appendChild(item);
+        });
+        cadExplorerTree.appendChild(folderDiv);
+    });
+    lucide.createIcons();
+}
+
+function renderCadBehanceGrid(files) {
+    if (!cadNoSelectionScreen) return;
+    
+    cadNoSelectionScreen.innerHTML = '';
+    cadNoSelectionScreen.className = 'pinterest-grid';
+    cadNoSelectionScreen.removeAttribute('style'); // reset style attributes
+    
+    if (files.length === 0) {
+        cadNoSelectionScreen.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);"><p>검색 조건에 맞는 도면 파일이 없습니다.</p></div>';
+        return;
+    }
+    
+    files.forEach(file => {
+        const card = document.createElement('div');
+        card.className = 'pin-card';
+        
+        let fileTypeTag = file.ext.toUpperCase();
+        let thumbContent = '';
+        
+        const randHeight = 160 + Math.floor(Math.random() * 110); // staggered height: 160px to 270px
+        
+        if (['jpg', 'jpeg', 'png', 'gif'].includes(file.ext)) {
+            thumbContent = `<img class="pin-thumbnail-img" src="${getFileUrl(file.path)}" alt="${file.name}" style="height: auto; max-height: 250px;">`;
+        } else {
+            let iconText = file.ext.substring(0, 3).toUpperCase();
+            thumbContent = `<div class="pin-thumbnail-fallback" style="height: ${randHeight}px;">${iconText}</div>`;
+        }
+        
+        const pathKey = 'cad_social_' + file.path;
+        let socialData = localStorage.getItem(pathKey);
+        if (!socialData) {
+            socialData = JSON.stringify({
+                appreciations: 12 + Math.floor(Math.random() * 40),
+                views: 240 + Math.floor(Math.random() * 600),
+                comments: []
+            });
+            localStorage.setItem(pathKey, socialData);
+        }
+        const data = JSON.parse(socialData);
+        
+        const isSavedKey = 'pin_saved_' + file.path;
+        const isSaved = localStorage.getItem(isSavedKey) === 'true';
+        const saveBtnText = isSaved ? '저장됨' : '저장';
+        const saveBtnClass = isSaved ? 'pin-save-btn saved' : 'pin-save-btn';
+        
+        card.innerHTML = `
+            <div class="pin-thumbnail-container" style="position:relative;">
+                ${thumbContent}
+                <div class="pin-hover-overlay">
+                    <div class="pin-overlay-top">
+                        <button class="${saveBtnClass}" title="BADA 보드에 저장" onclick="event.stopPropagation(); toggleSavePin('${file.path}', this)">
+                            <i data-lucide="bookmark" style="width: 12px; height: 12px; fill: currentColor;"></i>
+                            <span>${saveBtnText}</span>
+                        </button>
+                    </div>
+                    <div class="pin-overlay-bottom">
+                        <a class="pin-action-btn" title="다운로드" href="${getFileUrl(file.path)}" download onclick="event.stopPropagation();">
+                            <i data-lucide="download" style="width: 14px; height: 14px;"></i>
+                        </a>
+                        <button class="pin-action-btn btn-appreciate-quick" title="추천" onclick="event.stopPropagation(); quickAppreciate('${file.path}', this)">
+                            <i data-lucide="heart" style="width: 14px; height: 14px; fill: currentColor;"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="pin-card-content">
+                <div class="pin-card-title" title="${file.name}">${file.name}</div>
+                <div class="pin-card-tags">
+                    <span class="pin-card-tag">${fileTypeTag}</span>
+                    <span class="pin-card-tag" style="background:rgba(16,185,129,0.08);color:#10b981;">#Local</span>
+                </div>
+            </div>
+            <div class="pin-card-footer">
+                <div class="pin-author-info">
+                    <div class="pin-author-avatar">🌊</div>
+                    <div class="pin-author-name">BADA</div>
+                </div>
+                <div class="pin-stats">
+                    <span class="pin-stat-item"><i data-lucide="eye" style="width: 11px; height: 11px;"></i> <span class="val-views">${data.views}</span></span>
+                    <span class="pin-stat-item"><i data-lucide="heart" style="width: 11px; height: 11px; color: var(--danger); fill: currentColor;"></i> <span class="val-likes">${data.appreciations}</span></span>
+                </div>
+            </div>
+        `;
+        
+        card.addEventListener('click', () => {
+            selectCadFile(file);
+        });
+        
+        cadNoSelectionScreen.appendChild(card);
+    });
+    
+    lucide.createIcons();
+}
+
+function loadCadComments(filePath) {
+    const listEl = document.getElementById('cadCommentsList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    
+    const pathKey = 'cad_social_' + filePath;
+    let socialData = localStorage.getItem(pathKey);
+    if (!socialData) return;
+    
+    const data = JSON.parse(socialData);
+    const comments = data.comments || [];
+    
+    if (comments.length === 0) {
+        listEl.innerHTML = '<p style="font-size:0.75rem;color:var(--text-muted);padding:0.75rem;text-align:center;">첫 피드백 의견을 남겨보세요!</p>';
+        return;
+    }
+    
+    comments.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'comment-item';
+        
+        const firstLetter = c.name ? c.name.charAt(0).toUpperCase() : 'U';
+        
+        item.innerHTML = `
+            <div class="comment-avatar">${firstLetter}</div>
+            <div class="comment-content">
+                <div class="comment-header">
+                    <span class="comment-author">${c.name}</span>
+                    <span class="comment-time">${c.time}</span>
+                </div>
+                <div class="comment-text">${c.text}</div>
+            </div>
+        `;
+        listEl.appendChild(item);
+    });
+    listEl.scrollTop = listEl.scrollHeight;
+}
+
+function submitCadComment() {
+    if (!cadState.activeFile) return;
+    const nameEl = document.getElementById('cadCommentName');
+    const textEl = document.getElementById('cadCommentText');
+    
+    const name = nameEl.value.trim() || '익명 유저';
+    const text = textEl.value.trim();
+    if (!text) return;
+    
+    const pathKey = 'cad_social_' + cadState.activeFile.path;
+    let socialData = localStorage.getItem(pathKey);
+    const data = socialData ? JSON.parse(socialData) : { appreciations: 0, views: 0, comments: [] };
+    
+    const newComment = {
+        name: name,
+        text: text,
+        time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    data.comments.push(newComment);
+    localStorage.setItem(pathKey, JSON.stringify(data));
+    
+    textEl.value = '';
+    loadCadComments(cadState.activeFile.path);
+    showToast('의견이 성공적으로 등록되었습니다!', 'success');
+}
+
+window.toggleSavePin = (filePath, btnEl) => {
+    const isSavedKey = 'pin_saved_' + filePath;
+    const isSaved = localStorage.getItem(isSavedKey) === 'true';
+    if (isSaved) {
+        localStorage.setItem(isSavedKey, 'false');
+        btnEl.className = 'pin-save-btn';
+        btnEl.querySelector('span').innerText = '저장';
+        showToast('보드에서 삭제되었습니다.', 'info');
+    } else {
+        localStorage.setItem(isSavedKey, 'true');
+        btnEl.className = 'pin-save-btn saved';
+        btnEl.querySelector('span').innerText = '저장됨';
+        showToast('BADA 보드에 저장되었습니다!', 'success');
+        
+        // Use standard floating hearts effect for success
+        createFloatingHearts(btnEl);
+    }
+};
+
+window.quickAppreciate = (filePath, btnEl) => {
+    const pathKey = 'cad_social_' + filePath;
+    let socialData = localStorage.getItem(pathKey);
+    if (socialData) {
+        const data = JSON.parse(socialData);
+        data.appreciations++;
+        localStorage.setItem(pathKey, JSON.stringify(data));
+        
+        const likesSpan = btnEl.closest('.pin-card')?.querySelector('.val-likes');
+        if (likesSpan) {
+            likesSpan.innerText = data.appreciations;
+        }
+        
+        createFloatingHearts(btnEl);
+    }
+};
+
+window.createFloatingHearts = (targetEl) => {
+    const rect = targetEl.getBoundingClientRect();
+    const count = 5;
+    for (let i = 0; i < count; i++) {
+        const heart = document.createElement('div');
+        heart.className = 'floating-heart';
+        heart.innerHTML = '❤️';
+        heart.style.left = (rect.left + rect.width / 2 + (Math.random() * 20 - 10)) + 'px';
+        heart.style.top = (rect.top + window.scrollY - 10) + 'px';
+        
+        const rotation = (Math.random() * 60 - 30) + 'deg';
+        heart.style.setProperty('--rot', rotation);
+        
+        document.body.appendChild(heart);
+        setTimeout(() => heart.remove(), 1000);
+    }
+};
+
+function selectCadFile(file) {
+    cadState.activeFile = file;
+    cadViewportMetadataBar.style.display = 'flex';
+    cadNoSelectionScreen.style.display = 'none';
+    
+    cadActiveFileName.innerText = file.name;
+    cadActiveFileSize.innerText = formatBytes(file.size);
+    
+    let path = file.path;
+    if (path.includes('/')) path = path.substring(0, path.lastIndexOf('/'));
+    else path = 'Root Workspace';
+    cadActiveFilePath.innerText = path;
+    
+    cadFileExtBadge.innerText = file.ext;
+    cadFileExtBadge.className = `file-icon-badge badge-${file.ext}`;
+    
+    cadBtnDownloadFile.href = getFileUrl(file.path);
+    
+    // Comments visibility
+    const comSec = document.getElementById('cadCommentsSection');
+    if (comSec) comSec.style.display = 'block';
+    loadCadComments(file.path);
+    
+    // Persistent View & Appreciate setup
+    const pathKey = 'cad_social_' + file.path;
+    let socialData = localStorage.getItem(pathKey);
+    if (!socialData) {
+        socialData = JSON.stringify({ appreciations: 0, views: 0, comments: [] });
+    }
+    const data = JSON.parse(socialData);
+    data.views++;
+    localStorage.setItem(pathKey, JSON.stringify(data));
+    
+    const appText = document.getElementById('cadAppreciateText');
+    if (appText) appText.innerText = `추천 (${data.appreciations})`;
+    
+    const appBtn = document.getElementById('cadBtnAppreciate');
+    if (appBtn) {
+        const newAppBtn = appBtn.cloneNode(true);
+        appBtn.parentNode.replaceChild(newAppBtn, appBtn);
+        newAppBtn.addEventListener('click', () => {
+            let currentSocial = localStorage.getItem(pathKey);
+            if (currentSocial) {
+                const sData = JSON.parse(currentSocial);
+                sData.appreciations++;
+                localStorage.setItem(pathKey, JSON.stringify(sData));
+                newAppBtn.querySelector('span').innerText = `추천 (${sData.appreciations})`;
+                createFloatingHearts(newAppBtn);
+                showToast('자산을 추천하였습니다!', 'success');
+            }
+        });
+    }
+    
+    hideAllCadViewports();
+    
+    const ext = file.ext;
+    if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        renderCadImage(file.path);
+    } else if (ext === 'dxf') {
+        renderCadDXF(file.path);
+    } else if (['stl', 'obj'].includes(ext)) {
+        renderCad3D(file.path, ext);
+    } else if (['pdf', 'ai'].includes(ext)) {
+        renderCadPDF(file.path);
+    } else {
+        renderCadProprietaryFallback(file);
+    }
+}
+
+function hideAllCadViewports() {
+    cadDxfViewportContainer.style.display = 'none';
+    cadMesh3dViewportContainer.style.display = 'none';
+    cadImageViewportContainer.style.display = 'none';
+    cadPdfViewportContainer.style.display = 'none';
+    cadProprietaryFallbackScreen.style.display = 'none';
+    
+    if (cadThreeState.animationId) {
+        cancelAnimationFrame(cadThreeState.animationId);
+        cadThreeState.animationId = null;
+    }
+    if (cadThreeState.resizeObserver) {
+        cadThreeState.resizeObserver.disconnect();
+        cadThreeState.resizeObserver = null;
+    }
+    if (cadThreeState.renderer) {
+        cadThreeState.renderer.dispose();
+        cadThreeState.renderer = null;
+        cadThreeState.scene = null;
+        cadThreeState.camera = null;
+        cadThreeState.controls = null;
+    }
+    const threeJsContainer = document.getElementById('cadThreeJsContainer');
+    if (threeJsContainer) threeJsContainer.innerHTML = '';
+}
+
+// 1. Image Viewer Logic
+function renderCadImage(path) {
+    cadImageViewportContainer.style.display = 'flex';
+    setCadViewportLoader(true, '이미지를 해독하는 중...');
+    
+    cadInteractiveImage.src = getFileUrl(path);
+    cadInteractiveImage.onload = () => {
+        cadImgState.zoom = 1.0;
+        cadImgState.panX = 0;
+        cadImgState.panY = 0;
+        updateCadImgTransform();
+        setCadViewportLoader(false);
+    };
+    cadInteractiveImage.onerror = () => {
+        showToast('이미지를 로드하는 데 실패했습니다.', 'error');
+        setCadViewportLoader(false);
+    };
+}
+
+function updateCadImgTransform() {
+    cadZoomableImageWrapper.style.transform = `translate(${cadImgState.panX}px, ${cadImgState.panY}px) scale(${cadImgState.zoom})`;
+}
+
+// 2. PDF / AI Logic
+function renderCadPDF(path) {
+    cadPdfViewportContainer.style.display = 'flex';
+    setCadViewportLoader(true, 'PDF 문서를 렌더링하는 중...');
+    
+    const renderArea = document.getElementById('cadPdfRenderingArea');
+    renderArea.innerHTML = '';
+    
+    cadPdfState.pdfInstance = null;
+    cadPdfState.currentPath = path;
+    cadPdfState.currentPage = 1;
+    
+    pdfjsLib.getDocument(getFileUrl(path)).promise.then(pdf => {
+        cadPdfState.pdfInstance = pdf;
+        cadPdfState.totalPages = pdf.numPages;
+        const totalPagesEl = document.getElementById('cadPdfTotalPages');
+        if (totalPagesEl) totalPagesEl.innerText = pdf.numPages;
+        renderCadPdfPage(1);
+    }).catch(err => {
+        console.error(err);
+        showToast('PDF 문서를 파싱하지 못했습니다.', 'error');
+        setCadViewportLoader(false);
+    });
+}
+
+function renderCadPdfPage(num) {
+    if (!cadPdfState.pdfInstance) return;
+    setCadViewportLoader(true, `${num}페이지 생성 중...`);
+    
+    const renderArea = document.getElementById('cadPdfRenderingArea');
+    renderArea.innerHTML = '';
+    
+    cadPdfState.pdfInstance.getPage(num).then(page => {
+        const canvas = document.createElement('canvas');
+        canvas.className = 'pdf-page-canvas';
+        renderArea.appendChild(canvas);
+        
+        const ctx = canvas.getContext('2d');
+        const width = renderArea.clientWidth || 600;
+        const initial = page.getViewport({ scale: 1.0 });
+        const scale = width / initial.width;
+        const viewport = page.getViewport({ scale: scale });
+        
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        
+        page.render({ canvasContext: ctx, viewport: viewport }).promise.then(() => {
+            const currentPageEl = document.getElementById('cadPdfCurrentPage');
+            if (currentPageEl) currentPageEl.innerText = num;
+            setCadViewportLoader(false);
+        }).catch(err => {
+            console.error("PDF render error:", err);
+            setCadViewportLoader(false);
+        });
+    }).catch(err => {
+        console.error("PDF getPage error:", err);
+        setCadViewportLoader(false);
+    });
+}
+
+// 3. WebGL 3D Logic
+function initCadThreeJs() {
+    const container = document.getElementById('cadThreeJsContainer');
+    container.innerHTML = '';
+    
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(state.theme === 'dark' ? 0x090d16 : 0xf1f5f9);
+    
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+    camera.position.set(200, 200, 300);
+    
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+    
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2;
+    
+    const ambientLight = new THREE.AmbientLight(state.theme === 'dark' ? 0x222222 : 0x555555);
+    scene.add(ambientLight);
+    
+    const d1 = new THREE.DirectionalLight(0xffffff, 0.85);
+    d1.position.set(100, 250, 100);
+    scene.add(d1);
+    
+    const d2 = new THREE.DirectionalLight(0x6366f1, 0.4);
+    d2.position.set(-100, -250, -100);
+    scene.add(d2);
+    
+    const grid = new THREE.GridHelper(400, 40, 0x6366f1, state.theme === 'dark' ? 0x1f2937 : 0xcbd5e1);
+    grid.position.y = -0.5;
+    scene.add(grid);
+    
+    cadThreeState.scene = scene;
+    cadThreeState.camera = camera;
+    cadThreeState.renderer = renderer;
+    cadThreeState.controls = controls;
+    cadThreeState.activeMesh = null;
+    cadThreeState.isWireframe = false;
+    
+    const obs = new ResizeObserver(() => {
+        if (cadThreeState.renderer && cadThreeState.camera) {
+            cadThreeState.camera.aspect = container.clientWidth / container.clientHeight;
+            cadThreeState.camera.updateProjectionMatrix();
+            cadThreeState.renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+    });
+    obs.observe(container);
+    cadThreeState.resizeObserver = obs;
+    
+    function animate() {
+        cadThreeState.animationId = requestAnimationFrame(animate);
+        if (cadThreeState.controls) cadThreeState.controls.update();
+        if (cadThreeState.renderer && cadThreeState.scene && cadThreeState.camera) {
+            cadThreeState.renderer.render(cadThreeState.scene, cadThreeState.camera);
+        }
+    }
+    animate();
+}
+
+function renderCad3D(path, ext) {
+    cadMesh3dViewportContainer.style.display = 'block';
+    setCadViewportLoader(true, `3D 메쉬 파일(${ext.toUpperCase()}) 파싱 중...`);
+    
+    if (!cadThreeState.scene) {
+        initCadThreeJs();
+    }
+    
+    if (ext === 'stl') {
+        const loader = new THREE.STLLoader();
+        loader.load(getFileUrl(path), (geometry) => {
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x6366f1, 
+                roughness: 0.4,
+                metalness: 0.7,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            geometry.computeBoundingBox();
+            const box = geometry.boundingBox;
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            mesh.position.sub(center);
+            
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            mesh.position.y += size.y / 2;
+            
+            cadThreeState.scene.add(mesh);
+            cadThreeState.activeMesh = mesh;
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            cadThreeState.camera.position.set(maxDim * 1.2, maxDim * 1.2, maxDim * 1.5);
+            cadThreeState.controls.target.set(0, size.y / 2, 0);
+            cadThreeState.controls.update();
+            
+            setCadViewportLoader(false);
+        }, null, () => {
+            showToast('STL 파일 렌더링 실패', 'error');
+            setCadViewportLoader(false);
+        });
+    } else if (ext === 'obj') {
+        const loader = new THREE.OBJLoader();
+        loader.load(getFileUrl(path), (obj) => {
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0xa855f7, 
+                roughness: 0.5,
+                metalness: 0.5,
+                side: THREE.DoubleSide
+            });
+            
+            obj.traverse((child) => {
+                if (child.isMesh) child.material = material;
+            });
+            
+            const box = new THREE.Box3().setFromObject(obj);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            obj.position.sub(center);
+            
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            obj.position.y += size.y / 2;
+            
+            cadThreeState.scene.add(obj);
+            cadThreeState.activeMesh = obj;
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            cadThreeState.camera.position.set(maxDim * 1.2, maxDim * 1.2, maxDim * 1.5);
+            cadThreeState.controls.target.set(0, size.y / 2, 0);
+            cadThreeState.controls.update();
+            
+            setCadViewportLoader(false);
+        }, null, () => {
+            showToast('OBJ 파일 렌더링 실패', 'error');
+            setCadViewportLoader(false);
+        });
+    }
+}
+
+function parseDxfText(dxfText) {
+    const lines = dxfText.split(/\r?\n/).map(line => line.trim());
+    const entities = [];
+    let i = 0;
+    let inEntitiesSection = false;
+    
+    while (i < lines.length) {
+        const groupCode = parseInt(lines[i]);
+        const value = lines[i+1];
+        if (isNaN(groupCode) || value === undefined) {
+            i += 1;
+            continue;
+        }
+        
+        if (groupCode === 0 && value === "SECTION") {
+            if (parseInt(lines[i+2]) === 2 && lines[i+3] === "ENTITIES") {
+                inEntitiesSection = true;
+                i += 4;
+                continue;
+            }
+        }
+        
+        if (groupCode === 0 && value === "ENDSEC") {
+            inEntitiesSection = false;
+        }
+        
+        if (inEntitiesSection && groupCode === 0) {
+            const entityType = value;
+            let entityData = { type: entityType };
+            i += 2;
+            
+            while (i < lines.length) {
+                const subCode = parseInt(lines[i]);
+                const subVal = lines[i+1];
+                if (subCode === 0) break;
+                
+                if (subCode === 10) entityData.x = parseFloat(subVal);
+                else if (subCode === 20) entityData.y = parseFloat(subVal);
+                else if (subCode === 30) entityData.z = parseFloat(subVal);
+                else if (subCode === 11) entityData.x2 = parseFloat(subVal);
+                else if (subCode === 21) entityData.y2 = parseFloat(subVal);
+                else if (subCode === 31) entityData.z2 = parseFloat(subVal);
+                else if (subCode === 40) entityData.radius = parseFloat(subVal);
+                else if (subCode === 50) entityData.startAngle = parseFloat(subVal);
+                else if (subCode === 51) entityData.endAngle = parseFloat(subVal);
+                else if (subCode === 1) entityData.text = subVal;
+                
+                if (entityType === "LWPOLYLINE") {
+                    if (subCode === 10) {
+                        if (!entityData.vertices) entityData.vertices = [];
+                        entityData.vertices.push({ x: parseFloat(subVal), y: 0 });
+                    } else if (subCode === 20) {
+                        if (entityData.vertices && entityData.vertices.length > 0) {
+                            entityData.vertices[entityData.vertices.length - 1].y = parseFloat(subVal);
+                        }
+                    }
+                }
+                
+                i += 2;
+            }
+            entities.push(entityData);
+            continue;
+        }
+        i += 2;
+    }
+    return entities;
+}
+
+// 4. DXF CAD Vector Logic
+async function renderCadDXF(path) {
+    cadDxfViewportContainer.style.display = 'block';
+    setCadViewportLoader(true, 'DXF 캐드 도면을 해석하는 중...');
+    
+    try {
+        const response = await fetch(getFileUrl(path));
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const text = await response.text();
+        
+        cadDxfState.entities = parseDxfText(text);
+        calculateCadDxfBounds();
+        fitCadDxfToViewport();
+        drawCadDxf();
+        setCadViewportLoader(false);
+    } catch (err) {
+        console.error(err);
+        showToast('DXF 벡터 렌더링 에러', 'error');
+        setCadViewportLoader(false);
+    }
+}
+
+function calculateCadDxfBounds() {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const check = (x,y) => {
+        if (isNaN(x) || isNaN(y)) return;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    };
+    
+    cadDxfState.entities.forEach(ent => {
+        if (ent.type === "LINE") {
+            check(ent.x, ent.y);
+            check(ent.x2, ent.y2);
+        } else if (ent.type === "CIRCLE" || ent.type === "ARC") {
+            check(ent.x - ent.radius, ent.y - ent.radius);
+            check(ent.x + ent.radius, ent.y + ent.radius);
+        } else if (ent.type === "LWPOLYLINE" && ent.vertices) {
+            ent.vertices.forEach(v => check(v.x, v.y));
+        } else if (ent.x !== undefined && ent.y !== undefined) {
+            check(ent.x, ent.y);
+        }
+    });
+    
+    if (minX === Infinity) {
+        cadDxfState.bounds = { minX: -150, maxX: 150, minY: -150, maxY: 150 };
+    } else {
+        cadDxfState.bounds = { minX, maxX, minY, maxY };
+    }
+}
+
+function fitCadDxfToViewport() {
+    cadDxfCanvas.width = cadDxfCanvas.parentElement.clientWidth;
+    cadDxfCanvas.height = cadDxfCanvas.parentElement.clientHeight;
+    
+    const pad = 30;
+    const width = cadDxfCanvas.width - pad * 2;
+    const height = cadDxfCanvas.height - pad * 2;
+    const dx = cadDxfState.bounds.maxX - cadDxfState.bounds.minX;
+    const dy = cadDxfState.bounds.maxY - cadDxfState.bounds.minY;
+    
+    if (dx > 0 && dy > 0) {
+        const zoomX = width / dx;
+        const zoomY = height / dy;
+        cadDxfState.zoom = Math.min(zoomX, zoomY);
+        
+        const midCADX = (cadDxfState.bounds.minX + cadDxfState.bounds.maxX) / 2;
+        const midCADY = (cadDxfState.bounds.minY + cadDxfState.bounds.maxY) / 2;
+        
+        const midScreenX = cadDxfCanvas.width / 2;
+        const midScreenY = cadDxfCanvas.height / 2;
+        
+        cadDxfState.panX = midScreenX - midCADX * cadDxfState.zoom;
+        cadDxfState.panY = midScreenY + midCADY * cadDxfState.zoom;
+    } else {
+        cadDxfState.zoom = 1.0;
+        cadDxfState.panX = cadDxfCanvas.width / 2;
+        cadDxfState.panY = cadDxfCanvas.height / 2;
+    }
+}
+
+function toScreenCoords(cx, cy) {
+    return {
+        x: cadDxfState.panX + cx * cadDxfState.zoom,
+        y: cadDxfState.panY - cy * cadDxfState.zoom
+    };
+}
+
+function toCadCoords(sx, sy) {
+    return {
+        x: (sx - cadDxfState.panX) / cadDxfState.zoom,
+        y: (cadDxfState.panY - sy) / cadDxfState.zoom
+    };
+}
+
+function drawCadDxf() {
+    const ctx = cadDxfCanvas.getContext('2d');
+    ctx.clearRect(0, 0, cadDxfCanvas.width, cadDxfCanvas.height);
+    
+    const isDark = state.theme === 'dark';
+    const strokeColor = isDark ? '#3b82f6' : '#1e3a8a';
+    const textColor = isDark ? '#e5e7eb' : '#1f2937';
+    
+    ctx.lineWidth = 1.0;
+    cadDxfState.entities.forEach(ent => {
+        ctx.strokeStyle = strokeColor;
+        ctx.fillStyle = strokeColor;
+        
+        if (ent.type === "LINE") {
+            const p1 = toScreenCoords(ent.x, ent.y);
+            const p2 = toScreenCoords(ent.x2, ent.y2);
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+        } else if (ent.type === "CIRCLE") {
+            const c = toScreenCoords(ent.x, ent.y);
+            const r = ent.radius * cadDxfState.zoom;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, r, 0, 2 * Math.PI);
+            ctx.stroke();
+        } else if (ent.type === "ARC") {
+            const c = toScreenCoords(ent.x, ent.y);
+            const r = ent.radius * cadDxfState.zoom;
+            const start = -ent.startAngle * Math.PI / 180;
+            const end = -ent.endAngle * Math.PI / 180;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, r, start, end, true);
+            ctx.stroke();
+        } else if (ent.type === "LWPOLYLINE" && ent.vertices && ent.vertices.length > 0) {
+            ctx.beginPath();
+            ent.vertices.forEach((v, idx) => {
+                const pt = toScreenCoords(v.x, v.y);
+                if (idx === 0) ctx.moveTo(pt.x, pt.y);
+                else ctx.lineTo(pt.x, pt.y);
+            });
+            ctx.stroke();
+        } else if ((ent.type === "TEXT" || ent.type === "MTEXT") && ent.text) {
+            const pt = toScreenCoords(ent.x, ent.y);
+            const h = Math.max(8, ent.radius ? ent.radius * cadDxfState.zoom : 12);
+            ctx.font = `${h}px 'Inter', sans-serif`;
+            ctx.fillStyle = textColor;
+            ctx.textBaseline = 'bottom';
+            let clean = ent.text.replace(/\\[A-Za-z0-9]+;/g, '').replace(/[\{\}]/g, '');
+            ctx.fillText(clean, pt.x, pt.y);
+        }
+    });
+}
+
+// 5. Proprietary Software Fallback Renderer
+function renderCadProprietaryFallback(file) {
+    cadProprietaryFallbackScreen.style.display = 'flex';
+    
+    const ext = file.ext;
+    let title = '';
+    let manual = '';
+    let icon = 'cpu';
+    
+    switch (ext) {
+        case 'max':
+            title = 'Autodesk 3ds Max Scene (.max)';
+            icon = 'box';
+            manual = `<ol>
+                <li>3ds Max에서 파일을 로드합니다.</li>
+                <li><strong>File > Export > Export Selected...</strong>를 클릭합니다.</li>
+                <li><strong>STL (*.stl)</strong> 또는 <strong>OBJ (*.obj)</strong> 형식을 선택해 같은 폴더에 동일 이름으로 내보냅니다.</li>
+            </ol>`;
+            break;
+        case 'mb':
+        case 'ma':
+            title = `Autodesk Maya ${ext==='mb'?'Binary':'ASCII'} Scene (.${ext})`;
+            icon = 'box';
+            manual = `<ol>
+                <li>Maya에서 모델 선택 후 <strong>File > Export Selection...</strong>을 클릭합니다.</li>
+                <li><strong>OBJexport</strong> 포맷을 설정해 동일한 명칭으로 자산 폴더에 내보냅니다.</li>
+            </ol>`;
+            break;
+        case 'catpart':
+        case 'catproduct':
+            title = `Dassault CATIA V5 ${ext==='catpart'?'Part':'Product'} (.${ext})`;
+            icon = 'drafting-compass';
+            manual = `<ol>
+                <li>CATIA에서 부품을 활성화하고 <strong>File > Save As...</strong> 메뉴를 엽니다.</li>
+                <li>도면은 <strong>dxf (.dxf)</strong>, 3D 파트는 <strong>stl (.stl)</strong>을 선택해 저장합니다.</li>
+            </ol>`;
+            break;
+        case 'art':
+            title = 'Delcam / Autodesk ArtCAM Project (.art)';
+            icon = 'activity';
+            manual = `<ol>
+                <li>릴리프 메뉴에서 <strong>Relief > Export > 3D ODF/STL...</strong>을 실행합니다.</li>
+                <li><strong>STL (Binary)</strong> 형식으로 내보내기를 완수합니다.</li>
+            </ol>`;
+            break;
+        case 'pz3':
+            title = 'Smith Micro Poser Scene (.pz3)';
+            icon = 'user-check';
+            manual = `<ol>
+                <li><strong>File > Export > Wavefront OBJ...</strong>를 통해 메쉬 파일로 추출합니다.</li>
+            </ol>`;
+            break;
+        case 'psd':
+            title = 'Adobe Photoshop Document (.psd)';
+            icon = 'image';
+            manual = `<ol>
+                <li><strong>File > Export > Export As...</strong>에서 <strong>PNG</strong>나 <strong>JPG</strong> 이미지로 저장합니다.</li>
+            </ol>`;
+            break;
+        case 'dwg':
+            title = 'Autodesk AutoCAD Drawing (.dwg)';
+            icon = 'drafting-compass';
+            manual = `<ol>
+                <li>AutoCAD 커맨드 라인에 <strong>DXFOUT</strong>을 입력하고 엔터를 누릅니다.</li>
+                <li><strong>AutoCAD 2018 DXF</strong> 규격 이하로 도면을 내보냅니다.</li>
+            </ol>`;
+            break;
+    }
+    
+    cadFallbackFormatName.innerText = title;
+    cadFallbackSoftwareIcon.setAttribute('data-lucide', icon);
+    cadExportManualContent.innerHTML = manual;
+    lucide.createIcons();
+    
+    searchCadAutolinks(file);
+}
+
+function searchCadAutolinks(file) {
+    cadAutolinkPreviewBox.style.display = 'none';
+    cadAutolinkActions.innerHTML = '';
+    
+    const base = file.name.substring(0, file.name.lastIndexOf('.'));
+    const matches = cadState.files.filter(f => {
+        const fBase = f.name.substring(0, f.name.lastIndexOf('.'));
+        return fBase === base && ['dxf', 'stl', 'obj', 'jpg', 'png', 'pdf'].includes(f.ext) && f.path !== file.path;
+    });
+    
+    if (matches.length > 0) {
+        cadAutolinkPreviewBox.style.display = 'block';
+        matches.forEach(match => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-glass';
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.fontSize = '0.75rem';
+            btn.style.padding = '0.35rem 0.65rem';
+            
+            let label = '';
+            let icon = 'eye';
+            
+            if (['jpg','png'].includes(match.ext)) { label = `이미지 보기 (.${match.ext})`; icon = 'image'; }
+            else if (match.ext === 'dxf') { label = 'DXF 캐드 렌더링'; icon = 'drafting-compass'; }
+            else if (['stl','obj'].includes(match.ext)) { label = `3D 모델 렌더링 (.${match.ext})`; icon = 'box'; }
+            
+            btn.innerHTML = `<i data-lucide="${icon}" style="width:12px;height:12px;"></i><span>${label}</span>`;
+            btn.addEventListener('click', () => {
+                const items = document.querySelectorAll('#cadExplorerTree .tree-file-item');
+                if (items) {
+                    items.forEach(el => {
+                        if (el.dataset.path === match.path) el.classList.add('active');
+                        else el.classList.remove('active');
+                    });
+                }
+                selectCadFile(match);
+            });
+            cadAutolinkActions.appendChild(btn);
+        });
+        lucide.createIcons();
+    }
+}
+

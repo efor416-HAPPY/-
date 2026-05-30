@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>바다(BADA) CAD & Media Viewer - 도면 및 3D 모델 통합 뷰어</title>
+    <meta name="description" content="Autodesk, Adobe, CATIA, ArtCAM, Poser 등 다양한 설계 및 3D 그래픽 자산을 실시간 탐색 및 조회하는 로컬 통합 뷰어">
+    
+    <!-- CSS Stylesheet -->
+    <link rel="stylesheet" href="viewer.css">
+    
+    <!-- CDNs for Render Libraries -->
+    <!-- 1. Three.js for 3D STL & OBJ Rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- 2. Three.js STL Loader -->
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/STLLoader.js"></script>
+    <!-- 3. Three.js OBJ Loader -->
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/OBJLoader.js"></script>
+    <!-- 4. Three.js OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- 5. PDF.js for PDF & AI Rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <!-- Background Glows -->
+    <div class="ambient-glow glow-top-left"></div>
+    <div class="ambient-glow glow-bottom-right"></div>
+
+    <div class="viewer-container">
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <div class="logo-icon">🌊</div>
+                <div class="logo-text">
+                    <h1>바다(BADA) CAD & Media Viewer</h1>
+                    <p>Autodesk · Dassault CATIA · Adobe · ArtCAM · Poser 통합 뷰어</p>
+                </div>
+            </div>
+            <div class="header-controls">
+                <!-- BADA Ambient Sound Player Widget -->
+                <div class="sound-widget">
+                    <span class="sound-widget-title">
+                        <i data-lucide="music-4" style="width: 14px; height: 14px;"></i>
+                        <span>자연의 소리</span>
+                    </span>
+                    <div class="sound-controls-grid">
+                        <div class="sound-control-item">
+                            <button class="sound-btn" id="soundBtnBirds" title="산새 소리 재생/정지">
+                                <i data-lucide="bird" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <input type="range" class="sound-slider" id="soundVolumeBirds" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                        <div class="sound-control-item">
+                            <button class="sound-btn" id="soundBtnWaves" title="파도 소리 재생/정지">
+                                <i data-lucide="waves" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <input type="range" class="sound-slider" id="soundVolumeWaves" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                        <div class="sound-control-item">
+                            <button class="sound-btn" id="soundBtnSpring" title="샘물 소리 재생/정지">
+                                <i data-lucide="droplets" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <input type="range" class="sound-slider" id="soundVolumeSpring" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                        <div class="sound-control-item">
+                            <button class="sound-btn" id="soundBtnRain" title="빗소리 재생/정지">
+                                <i data-lucide="cloud-rain" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <input type="range" class="sound-slider" id="soundVolumeRain" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                    </div>
+                </div>
+
+                <a href="index.html" class="btn-glass" title="문서 편집 및 요약기로 이동">
+                    <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                    <span>문서 에디터 이동</span>
+                </a>
+                <button class="theme-toggle" id="themeToggleBtn" title="테마 변경">
+                    <i data-lucide="sun" id="themeIconSun" style="width: 14px; height: 14px;"></i>
+                    <i data-lucide="moon" id="themeIconMoon" style="display: none; width: 14px; height: 14px;"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout Split -->
+        <main class="viewer-main">
+            <!-- Sidebar Panel: File Explorer -->
+            <div class="sidebar panel">
+                <div class="sidebar-header">
+                    <h2 class="panel-title">
+                        <i data-lucide="folder-open" style="color: var(--accent-primary);"></i>
+                        <span>설계 및 자산 탐색기</span>
+                    </h2>
+                    <button class="btn-icon" id="btnRefresh" title="파일 목록 새로고침">
+                        <i data-lucide="rotate-cw"></i>
+                    </button>
+                </div>
+                
+                <!-- Search & Filters -->
+                <div class="sidebar-search">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="fileSearch" placeholder="파일 이름 검색...">
+                </div>
+                
+                <div class="sidebar-tabs">
+                    <button class="tab-btn active" id="filterAll">전체</button>
+                    <button class="tab-btn" id="filterCAD">CAD / 3D</button>
+                    <button class="tab-btn" id="filterMedia">이미지 / 그래픽</button>
+                </div>
+
+                <!-- Tree Explorer Area -->
+                <div class="explorer-tree" id="explorerTree">
+                    <div class="loading-spinner-center" id="sidebarLoader">
+                        <div class="spinner"></div>
+                        <p>파일 목록을 불러오는 중...</p>
+                    </div>
+                    <!-- Dynamically populated files list goes here -->
+                </div>
+            </div>
+
+            <!-- Viewport Panel: Drawing & Canvas Viewer -->
+            <div class="viewport panel">
+                <!-- Viewport Control & Metadata Bar -->
+                <div class="viewport-metadata-bar" id="viewportMetadataBar" style="display: none;">
+                    <div class="file-meta-info">
+                        <div class="file-icon-badge" id="fileExtBadge">dxf</div>
+                        <div class="file-details">
+                            <h3 id="activeFileName">파일명.dxf</h3>
+                            <p>크기: <span id="activeFileSize">0 KB</span> | 경로: <span id="activeFilePath">dwg/부품</span></p>
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <button class="btn-glass" id="btnAppreciate" title="이 자산 추천하기">
+                            <i data-lucide="heart" style="width: 14px; height: 14px; color: var(--danger);"></i>
+                            <span id="btnAppreciateText">추천</span>
+                        </button>
+                        <button class="btn-primary" id="btnOpenNative" title="로컬 PC에 설치된 원본 응용프로그램으로 이 파일 열기">
+                            <i data-lucide="external-link"></i>
+                            <span>로컬 프로그램으로 열기</span>
+                        </button>
+                        <a href="#" class="btn-glass" id="btnDownloadFile" download title="이 파일 컴퓨터로 다운로드">
+                            <i data-lucide="download"></i>
+                            <span>다운로드</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Main Display Container -->
+                <div class="viewport-display-area" id="viewportDisplayArea">
+                    <!-- Default Screen when no file is selected -->
+                    <div class="no-selection-screen" id="noSelectionScreen">
+                        <i data-lucide="layout-template" class="watermark-icon"></i>
+                        <h2>바다(BADA) CAD & Media Viewer</h2>
+                        <p>사이드바의 도면 또는 미디어 자산 파일을 클릭하여 보기 화면을 기동하세요.</p>
+                        <div class="tech-capabilities">
+                            <div class="tech-item"><i data-lucide="drafting-compass"></i><span>2D DXF 캐드 도면 가속 렌더링</span></div>
+                            <div class="tech-item"><i data-lucide="box"></i><span>STL / OBJ 3D 프린터 모델 회전 뷰어</span></div>
+                            <div class="tech-item"><i data-lucide="image"></i><span>JPG / PNG 이미지 정밀 줌·팬</span></div>
+                            <div class="tech-item"><i data-lucide="file-text"></i><span>PDF 및 Adobe AI 벡터 렌더링</span></div>
+                            <div class="tech-item"><i data-lucide="terminal"></i><span>Max, Catia, Maya, ArtCAM, Poser 로컬 다이렉트 구동</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Loader overlay -->
+                    <div class="viewport-loader" id="viewportLoader">
+                        <div class="spinner"></div>
+                        <p id="viewportLoaderText">도면 데이터를 분석하는 중...</p>
+                    </div>
+
+                    <!-- 1. 2D Vector CAD DXF Viewer (HTML5 Canvas) -->
+                    <div class="viewport-canvas-container" id="dxfViewportContainer" style="display: none;">
+                        <canvas id="dxfCanvas"></canvas>
+                        <!-- CAD Floating Navigation HUD -->
+                        <div class="cad-navigation-hud">
+                            <button class="hud-btn" id="btnCadZoomIn" title="확대"><i data-lucide="zoom-in"></i></button>
+                            <button class="hud-btn" id="btnCadZoomOut" title="축소"><i data-lucide="zoom-out"></i></button>
+                            <button class="hud-btn" id="btnCadFit" title="화면 맞춤"><i data-lucide="maximize"></i></button>
+                            <span class="hud-divider"></span>
+                            <span class="hud-coords" id="hudCoords">X: 0.00, Y: 0.00</span>
+                        </div>
+                        <div class="cad-shortcuts-info">
+                            <span>드래그: 화면 이동 (Pan)</span>
+                            <span>|</span>
+                            <span>마우스 휠: 확대/축소 (Zoom)</span>
+                        </div>
+                    </div>
+
+                    <!-- 2. 3D Mesh STL/OBJ Viewer (Three.js WebGL) -->
+                    <div class="viewport-webgl-container" id="mesh3dViewportContainer" style="display: none;">
+                        <div id="threeJsContainer"></div>
+                        <div class="cad-navigation-hud" style="bottom: 1.5rem; left: 1.5rem;">
+                            <button class="hud-btn" id="btn3dWireframe" title="와이어프레임 전환"><i data-lucide="grid"></i></button>
+                            <button class="hud-btn" id="btn3dReset" title="카메라 위치 초기화"><i data-lucide="video"></i></button>
+                        </div>
+                        <div class="cad-shortcuts-info">
+                            <span>좌클릭 드래그: 카메라 회전</span>
+                            <span>|</span>
+                            <span>우클릭 드래그: 카메라 이동</span>
+                            <span>|</span>
+                            <span>휠: 확대/축소</span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Raster Image Viewer (JPG / PNG) -->
+                    <div class="viewport-image-container" id="imageViewportContainer" style="display: none;">
+                        <div class="zoomable-image-wrapper" id="zoomableImageWrapper">
+                            <img src="" id="interactiveImage" alt="CAD Drawing Render Preview">
+                        </div>
+                        <div class="cad-navigation-hud">
+                            <button class="hud-btn" id="btnImgZoomIn" title="확대"><i data-lucide="zoom-in"></i></button>
+                            <button class="hud-btn" id="btnImgZoomOut" title="축소"><i data-lucide="zoom-out"></i></button>
+                            <button class="hud-btn" id="btnImgReset" title="원래 크기"><i data-lucide="maximize-2"></i></button>
+                        </div>
+                        <div class="cad-shortcuts-info">
+                            <span>드래그: 이미지 위치 이동</span>
+                            <span>|</span>
+                            <span>휠 스크롤: 정밀 줌인/줌아웃</span>
+                        </div>
+                    </div>
+
+                    <!-- 4. PDF / Adobe Illustrator Viewer (PDF.js Frame) -->
+                    <div class="viewport-pdf-container" id="pdfViewportContainer" style="display: none;">
+                        <div id="pdfRenderingArea"></div>
+                        <div class="pdf-navigation-hud">
+                            <button class="hud-btn" id="btnPdfPrev" title="이전 페이지"><i data-lucide="chevron-left"></i></button>
+                            <span class="hud-page-indicator"><span id="pdfCurrentPage">1</span> / <span id="pdfTotalPages">1</span></span>
+                            <button class="hud-btn" id="btnPdfNext" title="다음 페이지"><i data-lucide="chevron-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- 5. Fallback Screen for Proprietary Heavy Binary CAD/3D Formats -->
+                    <div class="proprietary-fallback-screen" id="proprietaryFallbackScreen" style="display: none;">
+                        <div class="fallback-icon-card">
+                            <i data-lucide="cpu" class="software-type-icon" id="fallbackSoftwareIcon"></i>
+                            <h2 id="fallbackFormatName">Autodesk 3ds Max Document (.max)</h2>
+                            <p class="format-desc">이 파일은 웹 브라우저가 직접 파싱할 수 없는 독점 바이너리 설계 데이터 포맷입니다.</p>
+                        </div>
+
+                        <!-- Autolinked previews if matching exported files are found -->
+                        <div class="autolink-preview-box" id="autolinkPreviewBox" style="display: none;">
+                            <div class="box-title">
+                                <i data-lucide="sparkles" style="color: var(--accent-primary);"></i>
+                                <span>웹 프리뷰 가능 도면 자동 검색 완료!</span>
+                            </div>
+                            <p>이 파일과 짝을 이루는 웹 친화적 익스포트 도면 파일이 감지되었습니다. 아래 버튼을 눌러 즉시 뷰어로 조회하십시오.</p>
+                            <div class="autolink-actions" id="autolinkActions">
+                                <!-- Dynamic buttons to open matching .dxf / .stl / .obj / .jpg -->
+                            </div>
+                        </div>
+
+                        <div class="fallback-options-grid">
+                            <!-- Direct open option -->
+                            <div class="option-card">
+                                <div class="option-title">
+                                    <i data-lucide="terminal" style="color: var(--accent-primary);"></i>
+                                    <span>로컬 데스크톱 다이렉트 구동</span>
+                                </div>
+                                <p>내 컴퓨터의 로컬 운영체제(Windows)에 해당 소프트웨어가 설치되어 있는 경우, 즉시 프로그램을 기동하여 도면 편집 모드로 연결합니다.</p>
+                                <button class="btn-primary" id="btnFallbackOpenNative" style="width: 100%; margin-top: 1rem;">
+                                    <i data-lucide="external-link"></i>
+                                    <span>로컬 프로그램 연동 실행</span>
+                                </button>
+                            </div>
+
+                            <!-- Export guides tab -->
+                            <div class="option-card">
+                                <div class="option-title">
+                                    <i data-lucide="help-circle" style="color: var(--success);"></i>
+                                    <span>웹 뷰어용 포맷 내보내기 가이드</span>
+                                </div>
+                                <p id="exportGuideText">이 소프트웨어의 원본 데이터를 웹 브라우저에서 벡터/3D로 가속 조회하려면, 프로그램에서 지원하는 특정 규격으로 포맷을 익스포트해야 합니다.</p>
+                                <div class="export-manual-content" id="exportManualContent">
+                                    <!-- Dynamic text tailored to MAX, CATIA, ArtCAM, Poser, Maya etc. -->
+                                </div>
+                    </div>
+                    <!-- Dynamic Comments Panel for Standalone Viewer -->
+                    <div class="comments-section" id="commentsSection" style="display: none; border-radius: 0; border-left: none; border-right: none; border-bottom: none; margin-top: 0; overflow-y: auto;">
+                        <h4 class="comments-title">
+                            <i data-lucide="message-square" style="width: 14px; height: 14px;"></i>
+                            <span>설계 및 자산 토론 피드</span>
+                        </h4>
+                        <div class="comments-list" id="commentsList">
+                            <!-- Rendered dynamically -->
+                        </div>
+                        <form class="comment-form" id="commentForm" onsubmit="return false;">
+                            <div class="comment-form-row">
+                                <input type="text" class="comment-input-name" id="commentName" placeholder="작성자명" required>
+                                <input type="text" class="comment-input-text" id="commentText" placeholder="의견을 남겨 공유하세요 (예: 치수 수정 완료)" required>
+                            </div>
+                            <button type="submit" class="btn-comment-submit" id="commentSubmit">댓글 등록</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Viewer Script -->
+    <script src="viewer.js"></script>
+</body>
+</html>
